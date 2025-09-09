@@ -2671,7 +2671,7 @@ so use-package can load it. By using straight it does not work. Waiting for this
   ;; code.
   :load-path ("~/git_builds/combobulate/"))
 #+end_src
-* Indent
+* Indent-bars
 #+begin_src emacs-lisp
 (use-package indent-bars
   :straight (indent-bars :type git :host github :repo "jdtsmith/indent-bars")
