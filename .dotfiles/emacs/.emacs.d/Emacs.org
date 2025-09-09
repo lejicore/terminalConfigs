@@ -2638,6 +2638,10 @@ map)
 
 ;; kill current buffer without the annoying confirmation message
 #+end_src
+* Indentation
+#+begin_src emacs-lisp
+(setq lisp-indent-offset 4)
+#+end_src
 * Combobulate
 Actually to make work combobulate I have to download the git repo manually and use [[:load-path ("~/builds/combobulate/"][:load-path]]
 so use-package can load it. By using straight it does not work. Waiting for this [[https://github.com/mickeynp/combobulate/issues/119][issue]] to be solved.
