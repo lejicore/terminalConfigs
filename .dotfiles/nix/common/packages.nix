@@ -60,6 +60,6 @@ with pkgs;
   codex
   poppler-utils # getting pdftotext
   vips # Used to get images previews in Dirvish
-  copilot-language-server
   #mupdf
+  copilot-language-server
 ]
