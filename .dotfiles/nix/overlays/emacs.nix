@@ -32,8 +32,9 @@ rec {
         src = emacs-src; # ← pin the tree
         version = "${oldAttrs.version}-${shortRev}";
         env = (oldAttrs.env or { }) // {
-          NIX_CFLAGS_COMPILE = (oldAttrs.env.NIX_CFLAGS_COMPILE or "") + " -O2 -march=native";
+          NIX_CFLAGS_COMPILE = (oldAttrs.env.NIX_CFLAGS_COMPILE or "") + " -O2 -march=native -mtune=native";
         };
+        makeFlags = (oldAttrs.makeFlags or [ ]) ++ [ "NATIVE_FULL_AOT=1" ];
       });
   emacsLeji =
     if prev.stdenv.isDarwin then
