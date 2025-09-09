@@ -2115,6 +2115,7 @@ because compile mode is too slow"
 	  ("@work" . ?W)
 	  ("@learn" . ?L)
 	  ("@math" . ?m)
+	  ("@roam" . ?r)
 	  ("@config" . ?c)
 	  ("@wsl-configs" . ?w)
 	  ("agenda" . ?a)
