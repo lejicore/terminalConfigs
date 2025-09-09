@@ -1,8 +1,17 @@
 ;;; -*- lexical-binding: t; -*-
 
 (setenv "LSP_USE_PLISTS" "true")
-(setq read-process-output-max (* 10 1024 1024)) ;; 10mb
-(setq gc-cons-threshold 200000000)
+(setq read-process-output-max (* 1 1024 1024)) ;; 1mb
+(gcmh-mode 1)
+;;(setq gc-cons-threshold 200000000)
+
+;; Debug calls to garbage collect
+(defun my/logging-garbage-collect ()
+  "Wrapper around `garbage-collect` that always logs."
+  (let ((result (funcall (symbol-function 'garbage-collect))))
+    (message "Garbage collection #%d done" (cl-incf my/gc-counter))
+    result))
+;;(advice-add 'garbage-collect :around #'my/logging-garbage-collect)
 
 ;;(setq gc-cons-threshold (* 50 1000 000))
 (defun ox/display-startup-time()
@@ -490,6 +499,8 @@
 (setq native-comp-async-report-warnings-errors nil) ;; Remove warning of compiled package with Emacs compiled with Native flag
 (setq native-comp-deferred-compilation t) ;; To compile all site-lisp on demand (repos/AUR packages, ELPA, MELPA, whatever)
  (setq native-compile-prune-cache t) ;; And to keep the eln cache clean add 
+(setq native-comp-async-query-on-exit t) ;; Prevent emacs from quitting if some pakages are compiling
+(setq native-comp-async-jobs-number 4)
 ;;(load-theme 'deeper-blue t)
 
 ;; Make ESC quit prompts
@@ -1836,6 +1847,7 @@ because compile mode is too slow"
 	  ("@work" . ?W)
 	  ("@learn" . ?L)
 	  ("@math" . ?m)
+	  ("@roam" . ?r)
 	  ("@config" . ?c)
 	  ("@wsl-configs" . ?w)
 	  ("agenda" . ?a)
@@ -2310,6 +2322,8 @@ map)
 
 ;; kill current buffer without the annoying confirmation message
 
+(setq lisp-indent-offset 4)
+
 (use-package combobulate
   ;; :straight (combobulate :type git :host github :repo "mickeynp/combobulate")
   :custom
@@ -2422,6 +2436,7 @@ map)
   :init
   (dirvish-override-dired-mode)
   :config
+    (global-set-key (kbd "C-c d") 'dirvish)
       (evil-collection-define-key 'normal 'dired-mode-map
       "q" 'dirvish-quit))
 
