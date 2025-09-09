@@ -554,6 +554,8 @@ It can also add projects on the fly with the Add project option
 (setq native-comp-async-report-warnings-errors nil) ;; Remove warning of compiled package with Emacs compiled with Native flag
 (setq native-comp-deferred-compilation t) ;; To compile all site-lisp on demand (repos/AUR packages, ELPA, MELPA, whatever)
  (setq native-compile-prune-cache t) ;; And to keep the eln cache clean add 
+(setq native-comp-async-query-on-exit t) ;; Prevent emacs from quitting if some pakages are compiling
+(setq native-comp-async-jobs-number 4)
 ;;(load-theme 'deeper-blue t)
 
 ;; Make ESC quit prompts
