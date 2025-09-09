@@ -98,6 +98,7 @@ rec {
       # not needed on linux but needed on mac
       epkgs.vterm
       epkgs.treesit-grammars.with-all-grammars
+      epkgs.gcmh
       # epkgs.all-the-icons
     ])
   );
@@ -116,6 +117,7 @@ rec {
       # not needed but prevents need to compile on first run
       epkgs.vterm
       epkgs.treesit-grammars.with-all-grammars
+      epkgs.gcmh
     ])
   );
 }
