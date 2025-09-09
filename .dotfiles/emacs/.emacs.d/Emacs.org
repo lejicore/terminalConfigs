@@ -15,12 +15,23 @@
 [[(setenv "LSP_USE_PLISTS" "true"][LSP_USE_PLISTS]] settled to true make lsp use plists needed for [[https://github.com/blahgeek/emacs-lsp-booster][emacs-lsp-booster]]
 testing to keep [[(setq gc-cons-threshold 200000000][gc-cons-threshold]] at a high value to increase lsp performances remove the reduction [[(setq gc-cons-threshold (* 2 1000 000][here]]
 
+Uncomment [[;;(advice-add 'garbage-collect][;;(advice-add 'garbage...]] if you want to allow the debug of garbage collection.
+
 #+begin_src emacs-lisp
 ;;; -*- lexical-binding: t; -*-
 
 (setenv "LSP_USE_PLISTS" "true")
-(setq read-process-output-max (* 10 1024 1024)) ;; 10mb
-(setq gc-cons-threshold 200000000)
+(setq read-process-output-max (* 1 1024 1024)) ;; 1mb
+(gcmh-mode 1)
+;;(setq gc-cons-threshold 200000000)
+
+;; Debug calls to garbage collect
+(defun my/logging-garbage-collect ()
+  "Wrapper around `garbage-collect` that always logs."
+  (let ((result (funcall (symbol-function 'garbage-collect))))
+    (message "Garbage collection #%d done" (cl-incf my/gc-counter))
+    result))
+;;(advice-add 'garbage-collect :around #'my/logging-garbage-collect)
 
 ;;(setq gc-cons-threshold (* 50 1000 000))
 (defun ox/display-startup-time()
