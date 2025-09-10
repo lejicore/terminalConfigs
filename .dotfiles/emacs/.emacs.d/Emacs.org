@@ -565,6 +565,23 @@ It can also add projects on the fly with the Add project option
 
 ;; Reapply after any theme change
 (add-hook 'after-load-theme-hook #'my/apply-fonts)
+
+(defun ox/first-available-font (&rest families)
+  (seq-find (lambda (f) (member f (font-family-list))) families))
+
+;; Prefer a font that actually has U+1F5C0:
+(let ((sym (ox/first-available-font
+            "Noto Sans Symbols 2" "Apple Symbols" "Symbola" "Segoe UI Symbol")))
+  (when sym
+    ;; Wide pictograph blocks (covers U+1F5C0 among many)
+    (set-fontset-font t '(#x1F300 . #x1FAFF) (font-spec :family sym) nil 'prepend)
+    ;; Also map generic 'symbol' script so other symbols fall back cleanly
+    (set-fontset-font t 'symbol (font-spec :family sym) nil 'prepend)))
+
+;; Emoji fallback (if needed)
+(let ((emoji (ox/first-available-font "Apple Color Emoji" "Noto Color Emoji" "Segoe UI Emoji")))
+  (when emoji
+    (set-fontset-font t 'emoji (font-spec :family emoji) nil 'prepend)))
 #+end_src
 * Basic Settings
 #+begin_src emacs-lisp
