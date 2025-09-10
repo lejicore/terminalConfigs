@@ -1292,12 +1292,13 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
 
   ;; Bind some useful keys for evil-mode
   (evil-define-key '(normal insert visual) eshell-mode-map (kbd "<home>") 'eshell-bol)
-
+(evil-define-key '(visual insert normal) eshell-mode-map (kbd "C-6") 'evil-switch-to-windows-last-buffer)
   (setq eshell-history-size 10000
 	eshell-buffer-maximun-lines 10000
 	eshell-hist-ignoredups t
 	eshell-scroll-to-bottom-on-input t))
 
+  (add-hook 'eshell-mode-hook 'ox/configure-eshell)
 (use-package eshell
   :straight t
   :hook (eshell-first-time-mode . ox/configure-eshell)
