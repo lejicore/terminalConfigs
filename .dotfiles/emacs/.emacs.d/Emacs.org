@@ -19,10 +19,16 @@ Uncomment [[;;(advice-add 'garbage-collect][;;(advice-add 'garbage...]] if you w
 
 #+begin_src emacs-lisp
 ;;; -*- lexical-binding: t; -*-
-
 (setenv "LSP_USE_PLISTS" "true")
-(setq read-process-output-max (* 1 1024 1024)) ;; 1mb
-(gcmh-mode 1)
+(setq gc-cons-threshold most-positive-fixnum
+    read-process-output-max (* 4 1024 1024) ;; 4mb
+    gc-cons-percentage 0.6)
+(add-hook 'emacs-startup-hook
+    (lambda ()
+	;; Settle to a balanced interactive setting and activate gcmh
+	(setq gc-cons-percentage 0.1)
+	(gcmh-mode 1)))
+;;(gcmh-mode 1)
 ;;(setq gc-cons-threshold 200000000)
 
 ;; Debug calls to garbage collect
