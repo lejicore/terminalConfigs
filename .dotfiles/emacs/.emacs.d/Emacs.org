@@ -1116,7 +1116,7 @@ folder, otherwise delete a word"
     "h" '(:ignore t :which-key "hydra")
     "hs" '(hydra-text-scale/body :which-key "scale text")
     "hb" '(hydra-split-size/body :which-key "split sizes")
-    "hh" '(harpoon-quick-menu-hydra :which-key "harpoon-quick-menu-hyra")
+    "ha" '(harpoon-quick-menu-hydra :which-key "harpoon-quick-menu-hyra")
     "hf" '(coc-dc-menu :which-key "coc-damage-calculator")))
 
 (defun kill-current-buffer-without-confirm ()
