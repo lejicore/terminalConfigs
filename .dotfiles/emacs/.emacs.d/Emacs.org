@@ -1284,6 +1284,7 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
 
 (defun ox/configure-eshell ()
   ;; Save command history when commands are entered
+    (corfu-mode -1)
   (add-hook 'eshell-pre-command-hook 'eshell-save-some-history)
 
   ;; Truncate buffer for performance
