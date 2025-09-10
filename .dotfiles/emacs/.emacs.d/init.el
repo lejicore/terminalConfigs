@@ -1,8 +1,14 @@
 ;;; -*- lexical-binding: t; -*-
-
 (setenv "LSP_USE_PLISTS" "true")
-(setq read-process-output-max (* 1 1024 1024)) ;; 1mb
-(gcmh-mode 1)
+(setq gc-cons-threshold most-positive-fixnum
+    read-process-output-max (* 4 1024 1024) ;; 4mb
+    gc-cons-percentage 0.6)
+(add-hook 'emacs-startup-hook
+    (lambda ()
+	;; Settle to a balanced interactive setting and activate gcmh
+	(setq gc-cons-percentage 0.1)
+	(gcmh-mode 1)))
+;;(gcmh-mode 1)
 ;;(setq gc-cons-threshold 200000000)
 
 ;; Debug calls to garbage collect
@@ -496,6 +502,23 @@
 ;; Reapply after any theme change
 (add-hook 'after-load-theme-hook #'my/apply-fonts)
 
+(defun ox/first-available-font (&rest families)
+  (seq-find (lambda (f) (member f (font-family-list))) families))
+
+;; Prefer a font that actually has U+1F5C0:
+(let ((sym (ox/first-available-font
+            "Noto Sans Symbols 2" "Apple Symbols" "Symbola" "Segoe UI Symbol")))
+  (when sym
+    ;; Wide pictograph blocks (covers U+1F5C0 among many)
+    (set-fontset-font t '(#x1F300 . #x1FAFF) (font-spec :family sym) nil 'prepend)
+    ;; Also map generic 'symbol' script so other symbols fall back cleanly
+    (set-fontset-font t 'symbol (font-spec :family sym) nil 'prepend)))
+
+;; Emoji fallback (if needed)
+(let ((emoji (ox/first-available-font "Apple Color Emoji" "Noto Color Emoji" "Segoe UI Emoji")))
+  (when emoji
+    (set-fontset-font t 'emoji (font-spec :family emoji) nil 'prepend)))
+
 (setq native-comp-async-report-warnings-errors nil) ;; Remove warning of compiled package with Emacs compiled with Native flag
 (setq native-comp-deferred-compilation t) ;; To compile all site-lisp on demand (repos/AUR packages, ELPA, MELPA, whatever)
  (setq native-compile-prune-cache t) ;; And to keep the eln cache clean add 
@@ -916,7 +939,7 @@ folder, otherwise delete a word"
     "h" '(:ignore t :which-key "hydra")
     "hs" '(hydra-text-scale/body :which-key "scale text")
     "hb" '(hydra-split-size/body :which-key "split sizes")
-    "hh" '(harpoon-quick-menu-hydra :which-key "harpoon-quick-menu-hyra")
+    "ha" '(harpoon-quick-menu-hydra :which-key "harpoon-quick-menu-hyra")
     "hf" '(coc-dc-menu :which-key "coc-damage-calculator")))
 
 (defun kill-current-buffer-without-confirm ()
@@ -1034,6 +1057,7 @@ folder, otherwise delete a word"
 
 (defun ox/configure-eshell ()
   ;; Save command history when commands are entered
+    (corfu-mode -1)
   (add-hook 'eshell-pre-command-hook 'eshell-save-some-history)
 
   ;; Truncate buffer for performance
@@ -1041,12 +1065,13 @@ folder, otherwise delete a word"
 
   ;; Bind some useful keys for evil-mode
   (evil-define-key '(normal insert visual) eshell-mode-map (kbd "<home>") 'eshell-bol)
-
+(evil-define-key '(visual insert normal) eshell-mode-map (kbd "C-6") 'evil-switch-to-windows-last-buffer)
   (setq eshell-history-size 10000
 	eshell-buffer-maximun-lines 10000
 	eshell-hist-ignoredups t
 	eshell-scroll-to-bottom-on-input t))
 
+  (add-hook 'eshell-mode-hook 'ox/configure-eshell)
 (use-package eshell
   :straight t
   :hook (eshell-first-time-mode . ox/configure-eshell)
@@ -2436,6 +2461,21 @@ map)
   :init
   (dirvish-override-dired-mode)
   :config
+    (defun my/faster-dirvish-previews ()
+    "Disable intensive mode in file manager buffers."
+    (when (or (derived-mode-p 'dired-mode)
+	      (derived-mode-p 'dirvish-mode)
+	      (string-match-p "PREVIEW ::" (buffer-name)))
+	(setq-local global-treesit-auto-mode nil)
+	(treesit-auto-mode -1)
+	lsp-treemacs-sync-mode
+	lsp-headerline-breadcrumb-mode
+	lsp-ui-mode))
+
+(add-hook 'after-change-major-mode-hook 
+    #'my/faster-dirvish-previews
+    :append)  ; APPEND is crucial - runs after mode activation
+
     (global-set-key (kbd "C-c d") 'dirvish)
       (evil-collection-define-key 'normal 'dired-mode-map
       "q" 'dirvish-quit))
