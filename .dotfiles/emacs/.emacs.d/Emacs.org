@@ -2794,6 +2794,21 @@ We are using consult-dash as an ui-front end to parse dash-docs
   :init
   (dirvish-override-dired-mode)
   :config
+    (defun my/faster-dirvish-previews ()
+    "Disable intensive mode in file manager buffers."
+    (when (or (derived-mode-p 'dired-mode)
+	      (derived-mode-p 'dirvish-mode)
+	      (string-match-p "PREVIEW ::" (buffer-name)))
+	(setq-local global-treesit-auto-mode nil)
+	(treesit-auto-mode -1)
+	lsp-treemacs-sync-mode
+	lsp-headerline-breadcrumb-mode
+	lsp-ui-mode))
+
+(add-hook 'after-change-major-mode-hook 
+    #'my/faster-dirvish-previews
+    :append)  ; APPEND is crucial - runs after mode activation
+
     (global-set-key (kbd "C-c d") 'dirvish)
       (evil-collection-define-key 'normal 'dired-mode-map
       "q" 'dirvish-quit))
