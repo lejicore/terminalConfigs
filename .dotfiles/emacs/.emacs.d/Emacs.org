@@ -2469,6 +2469,7 @@ Actually using it to display zettels from org-roam to org-fc flashcards without 
 (when (featurep 'org-transclusion)
   (advice-add 'org-fc-review-rate-easy :around #'my/org-fc-safe-wrapper)
   (advice-add 'org-fc-review-rate-good :around #'my/org-fc-safe-wrapper)
+  (advice-add 'org-fc-review-rate-again :around #'my/org-fc-safe-wrapper)
   (advice-add 'org-fc-review-rate-hard :around #'my/org-fc-safe-wrapper))
 
 (add-hook 'org-mode-hook  #'(lambda() (org-transclusion-mode)))
