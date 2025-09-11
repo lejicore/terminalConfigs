@@ -1578,7 +1578,9 @@ Adding [[(define-key evil-motion-state-map (kbd "\\"][\]] as a secondary leader 
   "Make and Run a C program on a vterm buffer based on the makefile recipies
 because compile mode is too slow"
   (interactive)
-  (if (eq major-mode 'c-ts-mode)
+  (if (or
+	  (eq major-mode 'c-ts-mode)
+	  (eq major-mode 'c++-ts-mode))
       (progn 
 	(save-buffer)
 	(let ((target (concat "make && time " "./" (file-name-nondirectory (directory-file-name (file-name-directory buffer-file-name))) "\n"))
