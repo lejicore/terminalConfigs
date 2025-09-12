@@ -1182,6 +1182,7 @@ folder, otherwise delete a word"
   (evil-set-initial-state 'message-buffer-mode 'normal)
   ;;(evil-set-initial-state 'vterm-mode 'emacs)
   (evil-set-initial-state 'dashboard-mode 'normal)
+  (evil-set-initial-state 'magit-status-mode 'emacs)
 
   (defun print-evil-state ()
     "Print the value of evil-emacs-state-modes."
@@ -1326,7 +1327,9 @@ folder, otherwise delete a word"
   "Make and Run a C program on a vterm buffer based on the makefile recipies
 because compile mode is too slow"
   (interactive)
-  (if (eq major-mode 'c-ts-mode)
+  (if (or
+	  (eq major-mode 'c-ts-mode)
+	  (eq major-mode 'c++-ts-mode))
       (progn 
 	(save-buffer)
 	(let ((target (concat "make && time " "./" (file-name-nondirectory (directory-file-name (file-name-directory buffer-file-name))) "\n"))
@@ -2163,6 +2166,7 @@ because compile mode is too slow"
 (when (featurep 'org-transclusion)
   (advice-add 'org-fc-review-rate-easy :around #'my/org-fc-safe-wrapper)
   (advice-add 'org-fc-review-rate-good :around #'my/org-fc-safe-wrapper)
+  (advice-add 'org-fc-review-rate-again :around #'my/org-fc-safe-wrapper)
   (advice-add 'org-fc-review-rate-hard :around #'my/org-fc-safe-wrapper))
 
 (add-hook 'org-mode-hook  #'(lambda() (org-transclusion-mode)))
