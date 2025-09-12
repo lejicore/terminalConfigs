@@ -1425,6 +1425,7 @@ Adding [[(define-key evil-motion-state-map (kbd "\\"][\]] as a secondary leader 
   (evil-set-initial-state 'message-buffer-mode 'normal)
   ;;(evil-set-initial-state 'vterm-mode 'emacs)
   (evil-set-initial-state 'dashboard-mode 'normal)
+  (evil-set-initial-state 'magit-status-mode 'emacs)
 
   (defun print-evil-state ()
     "Print the value of evil-emacs-state-modes."
