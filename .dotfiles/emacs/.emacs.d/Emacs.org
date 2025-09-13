@@ -2696,7 +2696,9 @@ map)
 ;; kill current buffer without the annoying confirmation message
 #+end_src
 * Indentation
+ Make emacs use spaces instead of tabs for reliability, as Emacs mix tabs and spaces for indentation. It does also breaks nixfmt: [[(setq-default indent-tabs-mode nil][Here]]
 #+begin_src emacs-lisp
+(setq-default indent-tabs-mode nil)
 (setq lisp-indent-offset 4)
 #+end_src
 * Combobulate
