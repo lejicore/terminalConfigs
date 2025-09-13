@@ -2166,6 +2166,7 @@ because compile mode is too slow"
 	  ("@config" . ?c)
 	  ("@wsl-configs" . ?w)
 	  ("agenda" . ?a)
+	  ("@aude" . ?A)
 	  ("planning" . ?p)
 	  ("publish" . ?P)
 	  ("batch" . ?b)
