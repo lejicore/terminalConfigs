@@ -2277,12 +2277,19 @@ because compile mode is too slow"
 	   :clock-in :clock-resume
 	   :empty-lines 1)
 
+	  ("jc" "Journal" entry
+	   (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
+	   "\n* %<%I:%M %p> - Journal :journal:\n%a\n%?\n\n"
+	   ;; ,(dw/read-file-as-string "~/Notes/Templates/Daily.org")
+	   :clock-in :clock-resume
+	   :empty-lines 1)
+
 	  ("w" "Workflows")
 	  ("we" "Checking Email" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
 	   "* Checking Email :email:\n\n%?" :clock-in :clock-resume :empty-lines 1)
 
 	  ("v" "Activities")
-	  ("va" "Activities idea" entry (file+olp+datetree ,(expand-file-name "org-files/Activities.org" my-org-directory) )
+	  ("va" "Activities idea" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
 	   "* A-PLAN %? :activities:" :clock-in :clock-resume :empty-lines 1)
 
 	  ("m" "Metrics Capture")
