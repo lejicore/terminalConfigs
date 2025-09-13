@@ -1319,7 +1319,11 @@ the loop bind keys to this function.
 The current-i variable is a workaround to prevent elisp dynamical scope in the lambda to only catch the i reference and having the correct number to bind by taking the good i value at each iteration of the loop.
 
 As none have every buffers we just switch to the vterm buffer by it's number.
+
+Unbind "*C-\*", then remap toggle-input-method to "*C-|*" so we can allow "*C-\*" as leader key to travel between vterms
 #+begin_src emacs-lisp
+(global-unset-key (kbd "C-\\"))
+(define-key global-map (kbd "C-|") #'toggle-input-method)
 (defun my-switch-to-persp-vterm-by-number (number)
   "Target a vterm buffer in persp by NUMBER."
   (interactive "nPress the number key for the persp-vterm: ")
@@ -1342,13 +1346,14 @@ As none have every buffers we just switch to the vterm buffer by it's number.
 (let ((i 1))
 (while (< i 10)  ;; Loop from 0 to 9
   (let* ((current-i i)
-	 (key (format "C-c t %d" i))
+	 (key (format "C-\\ %d" i))
 	 (command-name (intern (format "my-persp-vterm-%d" i))))
      (defalias command-name
        (lambda()
 		       (interactive)
 		       (my-switch-to-persp-vterm-by-number current-i)))
-     (keymap-global-set key command-name))
+     (keymap-global-set key command-name)
+      (evil-define-key '(visual insert normal) vterm-mode-map (kbd key) command-name))
   (setq i (+ i 1))))
 #+end_src
 * Evil Mode
