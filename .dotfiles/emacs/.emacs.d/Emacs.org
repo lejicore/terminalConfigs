@@ -1319,10 +1319,33 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
     (setq eshell-destroy-buffer-when-process-dies t)
     (setq eshell-visual-commands '("htop" "zsh" "vim"))))
 #+end_src
+* my/get-persp-non-vterm-current-buffer
+If we are going back and forth between vterms going back to the previous file is either too long =C-x b= to switch buffer, or broken with evil mode =C-6= as you might going back to a previous vterm buffer instead of the previous file we were editing. it has to be used with persp-mode.
 
+It does work on standalone vterm and with multi-vterm it has to be plugged into a multi-vterm switcher like [[defun My-switch-to-persp-vterm-by-number][here]]
+
+You can then bind a key to access to this stored buffer like [[(evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-6") (lambda() (interactive) (switch-to-buffer (symbol-value][here]]
+
+
+#+begin_src emacs-lisp
+(defun my/get-persp-non-vterm-current-buffer (&rest _)
+  "Save the name of the current buffer in the current perspective, but only if the current buffer is not a vterm buffer.
+The name of the buffer is stored in a variable named `my/last-non-vterm-buffer-on-<persp>-persp',
+where <persp> is the name of the current perspective, with any special characters escaped.
+This allows the last non-vterm buffer to be tracked on a per-perspective basis."
+  (let ((current-buffer-name (buffer-name (current-buffer))))
+      (unless (or (string-match-p "^\\*vterm\\(?:inal<[1-9]>\\)?\\*$" current-buffer-name)
+                  (string-match-p "\\*vterminal - dedicated\\*" current-buffer-name))
+          (set (intern (format "my/last-non-vterm-buffer-on-%s-persp"
+                           (safe-persp-name (get-frame-persp)))) current-buffer-name))))
+
+;; We advice multi-vterm and vterm to save the previous non vterm buffer even if we create new vterms
+(advice-add #'multi-vterm :before 'my/get-persp-non-vterm-current-buffer)
+(advice-add #'vterm :before 'my/get-persp-non-vterm-current-buffer)
+#+end_src
 * My-switch-to-persp-vterm-by-number
 Creating a function to target a specific vterm buffer inside a specific perspective.
-It first parse every buffer in the perspective seeking for vterm buffers only in the good order.
+It first parse every buffers in the perspective seeking for vterm buffers only in the good order.
 Then it switch to the vterm buffer by it's number.
 
 the loop bind keys to this function.
@@ -1334,9 +1357,11 @@ Unbind "*C-\*", then remap toggle-input-method to "*C-|*" so we can allow "*C-\*
 #+begin_src emacs-lisp
 (global-unset-key (kbd "C-\\"))
 (define-key global-map (kbd "C-|") #'toggle-input-method)
+
 (defun my-switch-to-persp-vterm-by-number (number)
   "Target a vterm buffer in persp by NUMBER."
   (interactive "nPress the number key for the persp-vterm: ")
+    (my/get-persp-non-vterm-current-buffer)
   (let* ((index 0)
 	 (number (1- number))
 	 (all-buffers-in-persp (reverse (persp-buffer-list-restricted)))
