@@ -1227,41 +1227,51 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
 ** vterm
 #+begin_src emacs-lisp
 (use-package vterm
-  :straight t
-  :defer 0
-  :after (general which-key)
-  :config
-;; Remove mappings of alt+numbers from vterm
-(dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
-    (define-key vterm-mode-map (kbd key) nil))
-;; switch to last buffer in every mode with C-6
-(evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-6") 'evil-switch-to-windows-last-buffer)
-;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-{") 'multi-vterm-prev)
-;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
+    :straight t
+    :defer 0
+    :after (general which-key)
+    :config
+    ;; Remove mappings of alt+numbers from vterm
+    (dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
+        (define-key vterm-mode-map (kbd key) nil))
+    ;; switch to last buffer to a previous non vterm buffer within a vterm buffer
+    (evil-define-key '(visual insert normal)
+        vterm-mode-map
+        (kbd "C-6")
+        (lambda()
+            (interactive)
+            (switch-to-buffer
+                (symbol-value
+                    (intern
+                        (format "my/last-non-vterm-buffer-on-%s-persp"
+                            (safe-persp-name (get-frame-persp))))))))
+    
+    ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-{") 'multi-vterm-prev)
+    ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
 
-  (setq vterm-max-scrollback 10000)
-  (setq term-prompt-regexp "^[^❯\n]*[❯] *"))
+    (setq vterm-max-scrollback 10000)
+    (setq term-prompt-regexp "^[^❯\n]*[❯] *"))
 ;;(setq term-prompt-regexp "^[^❯\n]*[.*❯] .*"))
-  ;;(setq term-prompt-regexp "^[^❯\n]*[❯] *"))
+;;(setq term-prompt-regexp "^[^❯\n]*[❯] *"))
 ;;(setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *"))
 ;; :hook (vterm-mode . (lambda ()
 ;; 			(evil-emacs-state))))
 (use-package multi-vterm
-  :straight t
-  :after vterm
-  ;; :after vterm
-  ;; :hook (vterm-mode . (lambda ()
-  ;; 			(evil-emacs-state))))
-  :config
-  (ox/leader-keys
-    "s" '(:ignore t :which-key "shells")
-    "sv" '(multi-vterm :which-key "new multi-vterm buffer")
-    "so" '(multi-vterm-dedicated-toggle :which-key "toggle multi-vterm")
-    "sp" '(multi-vterm-prev :which-key "multi-vterm prev")
-    "sn" '(multi-vterm-next :which-key "multi-vterm next")
-    "sd" '(ox/ledeb-vterm :which-key "vterm ledeb")
-    "se" '(eshell :whick-key "eshell"))
-  (setq multi-vterm-dedicated-window-height-percent 40))
+    :straight t
+    :after vterm
+    ;; :after vterm
+    ;; :hook (vterm-mode . (lambda ()
+    ;; 			(evil-emacs-state))))
+    :config
+    (ox/leader-keys
+        "s" '(:ignore t :which-key "shells")
+        "sv" '(multi-vterm :which-key "new multi-vterm buffer")
+        "so" '(multi-vterm-dedicated-toggle :which-key "toggle multi-vterm")
+        "sp" '(multi-vterm-prev :which-key "multi-vterm prev")
+        "sn" '(multi-vterm-next :which-key "multi-vterm next")
+        "sd" '(ox/ledeb-vterm :which-key "vterm ledeb")
+        "se" '(eshell :whick-key "eshell"))
+    (setq multi-vterm-dedicated-window-height-percent 40))
 ;; (add-hook 'vterm-mode-hook
 ;;           (lambda ()
 ;;             (set (make-local-variable 'buffer-face-mode-face) "Ubuntu Mono")
