@@ -1667,9 +1667,9 @@ because compile mode is too slow"
   :straight t
   :mode "\\.lua\\'")
 
-(use-package nix-mode
+(use-package nix-ts-mode
   :straight t
-  ;; :mode "\\.nix\\'"
+  :mode "\\.nix\\'"
   )
 (use-package nix-ts-mode
   :straight t
