@@ -1,14 +1,20 @@
-{ self, pkgs, inputs, config, ...}:
+{
+  self,
+  pkgs,
+  inputs,
+  config,
+  ...
+}:
 let
-  user = builtins.trace "${config.rage-username}" config.rage-username;
+  user = builtins.trace "${config.rage.username}" config.rage.username;
   homeDir = "/Users/${user}";
   configDir = "${homeDir}/.config";
   cacheDir = "${homeDir}/.cache";
 
   # Import the package list
-  packageList = import ./packages.nix  { pkgs = pkgs; };
+  packageList = import ./packages.nix { pkgs = pkgs; };
 in
-  {
+{
   imports = [
     ./pam-reattach.nix
   ];
@@ -20,7 +26,10 @@ in
   nix = {
     package = pkgs.nixVersions.latest;
     #package = pkgs.nixVersions.nix_2_24;
-    settings.trusted-users = [ "root" "@admin" ];
+    settings.trusted-users = [
+      "root"
+      "@admin"
+    ];
 
     settings.experimental-features = "nix-command flakes";
     optimise.automatic = true;
@@ -28,7 +37,11 @@ in
     #automatically gargage collect to reduce nix store size
     gc = {
       automatic = true;
-      interval = { Weekday = 0; Hour = 2; Minute = 0; };
+      interval = {
+        Weekday = 0;
+        Hour = 2;
+        Minute = 0;
+      };
       options = "--delete-older-than 15d";
     };
 
@@ -53,6 +66,9 @@ in
     pkgs.nerd-fonts.hack
     pkgs.nerd-fonts.caskaydia-cove
     pkgs.nerd-fonts.symbols-only
+    pkgs.noto-fonts # base Noto; good to have
+    pkgs.noto-fonts-emoji # color emoji coverage
+    pkgs.noto-fonts-extra # includes Symbols2 on most channels
   ];
 
   homebrew = {
@@ -69,7 +85,7 @@ in
       "progress"
       "pam-reattach"
       "reattach-to-user-namespace"
-      "libb2" #needed Because pip has blake2 errors related
+      "libb2" # needed Because pip has blake2 errors related
       "openssl"
     ];
     casks = [
@@ -84,7 +100,6 @@ in
       no_quarantine = true;
     };
   };
-
 
   # networking.firewall = {
   #   enable = true;
@@ -106,10 +121,8 @@ in
   #   pass in proto tcp from any to any port 22000
   #   pass out proto tcp from any to any port 22000
 
-
   #   pass in proto udp from any to any port 22000
   #   pass out proto udp from any to any port 22000
-
 
   #   pass in proto udp from any to any port 21027
   #   pass out proto udp from any to any port 21027
@@ -137,6 +150,7 @@ in
   # * System Settings
   system = {
 
+    primaryUser = config.rage.username;
     # Set Git commit hash for darwin-version.
     configurationRevision = self.rev or self.dirtyRev or null;
     defaults = {
@@ -195,4 +209,3 @@ in
     home = homeDir;
   };
 }
-
