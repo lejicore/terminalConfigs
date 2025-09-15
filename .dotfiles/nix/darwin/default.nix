@@ -24,8 +24,8 @@ in
 
   #services.nix-daemon.enable = true;
   nix = {
-    package = pkgs.nixVersions.latest;
-    #package = pkgs.nixVersions.nix_2_24;
+    #package = pkgs.nixVersions.latest;
+    package = pkgs.nixVersions.nix_2_28; # for nix-rage compatibility
     settings.trusted-users = [
       "root"
       "@admin"
