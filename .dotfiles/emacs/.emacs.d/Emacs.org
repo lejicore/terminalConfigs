@@ -375,6 +375,7 @@ Using persp-mode to create different workspaces
     (defun switch-to-last-persp-vterm ()
       "Switch to the last visited vterm buffer within the current perspective."
       (interactive)
+        (my/get-persp-non-vterm-current-buffer)
       (let ((last-persp-vterm-buffer (ox/find-first-vterm-in-persp)))
 	(message "vterm buffer is :%s" last-persp-vterm-buffer)
 	(if last-persp-vterm-buffer
@@ -1234,17 +1235,11 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
     ;; Remove mappings of alt+numbers from vterm
     (dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
         (define-key vterm-mode-map (kbd key) nil))
-    ;; switch to last buffer to a previous non vterm buffer within a vterm buffer
+    ;; switch to the most recent non vterm buffer within the current perspective
     (evil-define-key '(visual insert normal)
         vterm-mode-map
         (kbd "C-6")
-        (lambda()
-            (interactive)
-            (switch-to-buffer
-                (symbol-value
-                    (intern
-                        (format "my/last-non-vterm-buffer-on-%s-persp"
-                            (safe-persp-name (get-frame-persp))))))))
+        #'my/switch-to-persp-last-non-vterm-buffer)
     
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-{") 'multi-vterm-prev)
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
@@ -1302,7 +1297,7 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
 
   ;; Bind some useful keys for evil-mode
   (evil-define-key '(normal insert visual) eshell-mode-map (kbd "<home>") 'eshell-bol)
-(evil-define-key '(visual insert normal) eshell-mode-map (kbd "C-6") 'evil-switch-to-windows-last-buffer)
+(evil-define-key '(visual insert normal) eshell-mode-map (kbd "C-6") #'my/switch-to-persp-last-non-vterm-buffer)
   (setq eshell-history-size 10000
 	eshell-buffer-maximun-lines 10000
 	eshell-hist-ignoredups t
@@ -1324,24 +1319,95 @@ If we are going back and forth between vterms going back to the previous file is
 
 It does work on standalone vterm and with multi-vterm it has to be plugged into a multi-vterm switcher like [[defun My-switch-to-persp-vterm-by-number][here]]
 
-You can then bind a key to access to this stored buffer like [[(evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-6") (lambda() (interactive) (switch-to-buffer (symbol-value][here]]
+Bind =C-6= to =my/switch-to-persp-last-non-vterm-buffer= to jump between the last non-vterm buffers tracked per perspective.
 
 
 #+begin_src emacs-lisp
+(defvar my/non-vterm-buffer-history-limit 5
+  "Maximum number of non-vterm buffers remembered per perspective.")
+
+(defun my/vterm-buffer-p (&optional buffer)
+  "Return non-nil when BUFFER is a vterm buffer.
+BUFFER can be a buffer object, buffer name or nil for `current-buffer'."
+  (let ((buffer (cond
+                 ((bufferp buffer) buffer)
+                 ((stringp buffer) (get-buffer buffer))
+                 (t (current-buffer)))))
+    (when buffer
+      (with-current-buffer buffer
+        (derived-mode-p 'vterm-mode)))))
+
 (defun my/get-persp-non-vterm-current-buffer (&rest _)
-  "Save the name of the current buffer in the current perspective, but only if the current buffer is not a vterm buffer.
-The name of the buffer is stored in a variable named `my/last-non-vterm-buffer-on-<persp>-persp',
-where <persp> is the name of the current perspective, with any special characters escaped.
-This allows the last non-vterm buffer to be tracked on a per-perspective basis."
-  (let ((current-buffer-name (buffer-name (current-buffer))))
-      (unless (or (string-match-p "^\\*vterm\\(?:inal<[1-9]>\\)?\\*$" current-buffer-name)
-                  (string-match-p "\\*vterminal - dedicated\\*" current-buffer-name))
-          (set (intern (format "my/last-non-vterm-buffer-on-%s-persp"
-                           (safe-persp-name (get-frame-persp)))) current-buffer-name))))
+  "Record the active non-vterm buffer for the current perspective.
+The buffer history is stored per perspective so we can quickly jump back to
+recent non-vterm buffers even after visiting several vterms."
+  (let* ((persp (and (fboundp 'get-frame-persp) (get-frame-persp)))
+         (persp-name (cond
+                      ((and persp (fboundp 'safe-persp-name)) (safe-persp-name persp))
+                      (persp "global")
+                      (t "global")))
+         (current-buffer (current-buffer)))
+    (when (and persp-name
+               (not (my/vterm-buffer-p current-buffer))
+               (not (minibufferp current-buffer)))
+      (let* ((history-symbol (intern (format "my/non-vterm-buffer-history-on-%s-persp"
+                                             persp-name)))
+             (last-symbol (intern (format "my/last-non-vterm-buffer-on-%s-persp"
+                                          persp-name)))
+             (previous-symbol (intern (format "my/previous-non-vterm-buffer-on-%s-persp"
+                                              persp-name)))
+             (current-name (buffer-name current-buffer))
+             (history (when (boundp history-symbol)
+                        (symbol-value history-symbol)))
+             (history (cons current-name (delete current-name history)))
+             (tail history)
+             (count 1))
+        (while (and tail (< count my/non-vterm-buffer-history-limit))
+          (setq tail (cdr tail))
+          (setq count (1+ count)))
+        (when tail
+          (setcdr tail nil))
+        (set history-symbol history)
+        (set last-symbol (car history))
+        (set previous-symbol (cadr history))))))
+
+(defun my/switch-to-persp-last-non-vterm-buffer ()
+  "Jump to the most recent non-vterm buffer for the current perspective.
+From a vterm buffer go to the latest non-vterm buffer, otherwise jump to the
+previous non-vterm buffer if one exists. Fallback to the default last buffer
+command when no history is available."
+  (interactive)
+  (unless (my/vterm-buffer-p)
+    (my/get-persp-non-vterm-current-buffer))
+  (let* ((persp (and (fboundp 'get-frame-persp) (get-frame-persp)))
+         (persp-name (cond
+                      ((and persp (fboundp 'safe-persp-name)) (safe-persp-name persp))
+                      (persp "global")
+                      (t "global")))
+         (history-symbol (intern (format "my/non-vterm-buffer-history-on-%s-persp"
+                                         persp-name)))
+         (history (when (boundp history-symbol)
+                    (symbol-value history-symbol)))
+         (target-name (cond
+                       ((null history) nil)
+                       ((my/vterm-buffer-p) (car history))
+                       ((cdr history) (cadr history))
+                       (t (car history)))))
+    (cond
+     ((and target-name (get-buffer target-name))
+      (switch-to-buffer target-name))
+     ((fboundp 'evil-switch-to-windows-last-buffer)
+      (evil-switch-to-windows-last-buffer))
+     (t
+      (message "No recorded non-vterm buffer")))))
 
 ;; We advice multi-vterm and vterm to save the previous non vterm buffer even if we create new vterms
 (advice-add #'multi-vterm :before 'my/get-persp-non-vterm-current-buffer)
 (advice-add #'vterm :before 'my/get-persp-non-vterm-current-buffer)
+
+(with-eval-after-load 'evil
+  (dolist (state '(normal visual insert))
+    (evil-define-key state global-map (kbd "C-6") #'my/switch-to-persp-last-non-vterm-buffer)))
 #+end_src
 * My-switch-to-persp-vterm-by-number
 Creating a function to target a specific vterm buffer inside a specific perspective.
