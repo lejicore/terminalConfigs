@@ -5,6 +5,5 @@ node_modules
 nohup.out
 .env
 .dotfiles/scripts/scripts/fete/day.json
-.dotfiles/emacs/.emacs.d/init.el
 **/*~
 **/.DS_Store
