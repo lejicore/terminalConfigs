@@ -193,7 +193,19 @@ We use the no-littering package to keep folders where we edit files and the Emac
   (doom-modeline-height 1)
   :config
   (set-face-attribute 'mode-line nil :height 150)
-  (setq doom-modeline-time-analogue-clock nil))
+  (setq doom-modeline-time-analogue-clock nil)
+
+  ;; Simple vterm count display in modeline without overriding doom-modeline
+  (defvar my/vterm-count-modeline-format
+    '(:eval (when (and (bound-and-true-p persp-mode)
+                       (fboundp 'my/persp-vterm-buffer-count))
+              (let ((count (my/persp-vterm-buffer-count)))
+                (when (and count (> count 0))
+                  (format " 🖥%d" count)))))
+    "Mode line format for vterm buffer count.")
+
+  ;; Add to mode-line-misc-info so it appears without disrupting doom-modeline
+  (add-to-list 'mode-line-misc-info my/vterm-count-modeline-format t))
 #+end_src
 
 * Basic UI Configuration
@@ -352,6 +364,39 @@ Using persp-mode to create different workspaces
 
     ;; Add the custom filter function
     (add-hook 'persp-common-buffer-filter-functions #'my-persp-buffer-filter)
+
+    (defun my/persp-vterm-buffer-count ()
+      "Return the number of multi-vterm buffers (*vterminal<N>*) in the current perspective."
+      (when (and (boundp 'persp-mode) persp-mode
+                 (fboundp 'persp-buffer-list-restricted))
+        (cl-loop for buf in (persp-buffer-list-restricted)
+                 when (and (buffer-live-p buf)
+                           (eq (buffer-local-value 'major-mode buf) 'vterm-mode)
+                           (string-match-p "^\\*vterminal<[0-9]+>\\*$" (buffer-name buf)))
+                 count buf)))
+
+    ;; Function to update modeline when vterm count changes
+    (defun my/update-vterm-count-modeline ()
+      "Update the doom-modeline to reflect vterm buffer count changes."
+      (when (bound-and-true-p doom-modeline-mode)
+        (doom-modeline-refresh-bars)))
+
+    ;; Hook to update modeline when vterm buffers are created/destroyed
+    (defun my/vterm-modeline-update-hook ()
+      "Hook function to update modeline when vterm buffer state changes."
+      (run-with-idle-timer 0.1 nil #'my/update-vterm-count-modeline))
+
+    ;; Add hooks for vterm buffer creation and destruction
+    (add-hook 'vterm-mode-hook #'my/vterm-modeline-update-hook)
+    (add-hook 'kill-buffer-hook
+              (lambda ()
+                (when (eq major-mode 'vterm-mode)
+                  (my/vterm-modeline-update-hook))))
+
+    ;; Update modeline when switching perspectives
+    (when (fboundp 'persp-switch-hook)
+      (add-hook 'persp-switch-hook #'my/update-vterm-count-modeline))
+
 
     ;; Making harpoon maintaining a seperates set of bookmarks to each perspective
     ;; (defun harpoon--file-name ()
