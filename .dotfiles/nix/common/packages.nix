@@ -67,4 +67,5 @@ with pkgs;
   copilot-language-server
   eza
   hyperfine
+  claude-code
 ]
