@@ -1006,41 +1006,51 @@ folder, otherwise delete a word"
 ;;(setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *"))
 
 (use-package vterm
-  :straight t
-  :defer 0
-  :after (general which-key)
-  :config
-;; Remove mappings of alt+numbers from vterm
-(dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
-    (define-key vterm-mode-map (kbd key) nil))
-;; switch to last buffer in every mode with C-6
-(evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-6") 'evil-switch-to-windows-last-buffer)
-;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-{") 'multi-vterm-prev)
-;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
+    :straight t
+    :defer 0
+    :after (general which-key)
+    :config
+    ;; Remove mappings of alt+numbers from vterm
+    (dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
+        (define-key vterm-mode-map (kbd key) nil))
+    ;; switch to last buffer to a previous non vterm buffer within a vterm buffer
+    (evil-define-key '(visual insert normal)
+        vterm-mode-map
+        (kbd "C-6")
+        (lambda()
+            (interactive)
+            (switch-to-buffer
+                (symbol-value
+                    (intern
+                        (format "my/last-non-vterm-buffer-on-%s-persp"
+                            (safe-persp-name (get-frame-persp))))))))
+    
+    ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-{") 'multi-vterm-prev)
+    ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
 
-  (setq vterm-max-scrollback 10000)
-  (setq term-prompt-regexp "^[^❯\n]*[❯] *"))
+    (setq vterm-max-scrollback 10000)
+    (setq term-prompt-regexp "^[^❯\n]*[❯] *"))
 ;;(setq term-prompt-regexp "^[^❯\n]*[.*❯] .*"))
-  ;;(setq term-prompt-regexp "^[^❯\n]*[❯] *"))
+;;(setq term-prompt-regexp "^[^❯\n]*[❯] *"))
 ;;(setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *"))
 ;; :hook (vterm-mode . (lambda ()
 ;; 			(evil-emacs-state))))
 (use-package multi-vterm
-  :straight t
-  :after vterm
-  ;; :after vterm
-  ;; :hook (vterm-mode . (lambda ()
-  ;; 			(evil-emacs-state))))
-  :config
-  (ox/leader-keys
-    "s" '(:ignore t :which-key "shells")
-    "sv" '(multi-vterm :which-key "new multi-vterm buffer")
-    "so" '(multi-vterm-dedicated-toggle :which-key "toggle multi-vterm")
-    "sp" '(multi-vterm-prev :which-key "multi-vterm prev")
-    "sn" '(multi-vterm-next :which-key "multi-vterm next")
-    "sd" '(ox/ledeb-vterm :which-key "vterm ledeb")
-    "se" '(eshell :whick-key "eshell"))
-  (setq multi-vterm-dedicated-window-height-percent 40))
+    :straight t
+    :after vterm
+    ;; :after vterm
+    ;; :hook (vterm-mode . (lambda ()
+    ;; 			(evil-emacs-state))))
+    :config
+    (ox/leader-keys
+        "s" '(:ignore t :which-key "shells")
+        "sv" '(multi-vterm :which-key "new multi-vterm buffer")
+        "so" '(multi-vterm-dedicated-toggle :which-key "toggle multi-vterm")
+        "sp" '(multi-vterm-prev :which-key "multi-vterm prev")
+        "sn" '(multi-vterm-next :which-key "multi-vterm next")
+        "sd" '(ox/ledeb-vterm :which-key "vterm ledeb")
+        "se" '(eshell :whick-key "eshell"))
+    (setq multi-vterm-dedicated-window-height-percent 40))
 ;; (add-hook 'vterm-mode-hook
 ;;           (lambda ()
 ;;             (set (make-local-variable 'buffer-face-mode-face) "Ubuntu Mono")
@@ -1082,9 +1092,28 @@ folder, otherwise delete a word"
     (setq eshell-destroy-buffer-when-process-dies t)
     (setq eshell-visual-commands '("htop" "zsh" "vim"))))
 
+(defun my/get-persp-non-vterm-current-buffer (&rest _)
+  "Save the name of the current buffer in the current perspective, but only if the current buffer is not a vterm buffer.
+The name of the buffer is stored in a variable named `my/last-non-vterm-buffer-on-<persp>-persp',
+where <persp> is the name of the current perspective, with any special characters escaped.
+This allows the last non-vterm buffer to be tracked on a per-perspective basis."
+  (let ((current-buffer-name (buffer-name (current-buffer))))
+      (unless (or (string-match-p "^\\*vterm\\(?:inal<[1-9]>\\)?\\*$" current-buffer-name)
+                  (string-match-p "\\*vterminal - dedicated\\*" current-buffer-name))
+          (set (intern (format "my/last-non-vterm-buffer-on-%s-persp"
+                           (safe-persp-name (get-frame-persp)))) current-buffer-name))))
+
+;; We advice multi-vterm and vterm to save the previous non vterm buffer even if we create new vterms
+(advice-add #'multi-vterm :before 'my/get-persp-non-vterm-current-buffer)
+(advice-add #'vterm :before 'my/get-persp-non-vterm-current-buffer)
+
+(global-unset-key (kbd "C-\\"))
+(define-key global-map (kbd "C-|") #'toggle-input-method)
+
 (defun my-switch-to-persp-vterm-by-number (number)
   "Target a vterm buffer in persp by NUMBER."
   (interactive "nPress the number key for the persp-vterm: ")
+    (my/get-persp-non-vterm-current-buffer)
   (let* ((index 0)
 	 (number (1- number))
 	 (all-buffers-in-persp (reverse (persp-buffer-list-restricted)))
@@ -1101,17 +1130,19 @@ folder, otherwise delete a word"
       )
     ))
 
+(with-eval-after-load 'evil
 (let ((i 1))
 (while (< i 10)  ;; Loop from 0 to 9
   (let* ((current-i i)
-	 (key (format "C-c t %d" i))
+	 (key (format "C-\\ %d" i))
 	 (command-name (intern (format "my-persp-vterm-%d" i))))
      (defalias command-name
        (lambda()
 		       (interactive)
 		       (my-switch-to-persp-vterm-by-number current-i)))
-     (keymap-global-set key command-name))
-  (setq i (+ i 1))))
+     (keymap-global-set key command-name)
+      (evil-define-key '(visual insert normal) vterm-mode-map (kbd key) command-name))
+  (setq i (+ i 1)))))
 
 ;; Dependencies for evil mode undo features
 ;; (use-package undo-tree
@@ -1182,7 +1213,8 @@ folder, otherwise delete a word"
   (evil-set-initial-state 'message-buffer-mode 'normal)
   ;;(evil-set-initial-state 'vterm-mode 'emacs)
   (evil-set-initial-state 'dashboard-mode 'normal)
-  (evil-set-initial-state 'magit-status-mode 'emacs)
+  (with-eval-after-load 'magit
+  (evil-set-initial-state 'magit-status-mode 'emacs))
 
   (defun print-evil-state ()
     "Print the value of evil-emacs-state-modes."
@@ -1311,6 +1343,14 @@ folder, otherwise delete a word"
 
 ;; Split buffer horizontally
 
+(use-package better-jumper
+    :straight t
+    :config
+    (with-eval-after-load 'evil-maps
+        (define-key evil-motion-state-map (kbd "C-o") 'better-jumper-jump-backward)
+        (define-key evil-motion-state-map (kbd "C-i") 'better-jumper-jump-forward))
+    (better-jumper-mode +1))
+
 (use-package projectile
   :straight t
   :diminish projectile-mode
@@ -1362,9 +1402,9 @@ because compile mode is too slow"
   :straight t
   :mode "\\.lua\\'")
 
-(use-package nix-mode
+(use-package nix-ts-mode
   :straight t
-  ;; :mode "\\.nix\\'"
+  :mode "\\.nix\\'"
   )
 (use-package nix-ts-mode
   :straight t
@@ -1879,6 +1919,7 @@ because compile mode is too slow"
 	  ("@config" . ?c)
 	  ("@wsl-configs" . ?w)
 	  ("agenda" . ?a)
+	  ("@aude" . ?A)
 	  ("planning" . ?p)
 	  ("publish" . ?P)
 	  ("batch" . ?b)
@@ -1989,12 +2030,19 @@ because compile mode is too slow"
 	   :clock-in :clock-resume
 	   :empty-lines 1)
 
+	  ("jc" "Journal" entry
+	   (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
+	   "\n* %<%I:%M %p> - Journal :journal:\n%a\n%?\n\n"
+	   ;; ,(dw/read-file-as-string "~/Notes/Templates/Daily.org")
+	   :clock-in :clock-resume
+	   :empty-lines 1)
+
 	  ("w" "Workflows")
 	  ("we" "Checking Email" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
 	   "* Checking Email :email:\n\n%?" :clock-in :clock-resume :empty-lines 1)
 
 	  ("v" "Activities")
-	  ("va" "Activities idea" entry (file+olp+datetree ,(expand-file-name "org-files/Activities.org" my-org-directory) )
+	  ("va" "Activities idea" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
 	   "* A-PLAN %? :activities:" :clock-in :clock-resume :empty-lines 1)
 
 	  ("m" "Metrics Capture")
@@ -2351,6 +2399,7 @@ map)
 
 ;; kill current buffer without the annoying confirmation message
 
+(setq-default indent-tabs-mode nil)
 (setq lisp-indent-offset 4)
 
 (use-package combobulate
