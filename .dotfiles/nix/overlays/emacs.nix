@@ -11,7 +11,8 @@
 final: prev:
 
 let
-  inherit (emacs-src) outPath rev; # flake inputs expose these
+  #inherit (emacs-src) outPath rev; # flake inputs expose these
+  inherit (emacs-src) rev; # flake inputs expose these
   shortRev = builtins.substring 0 7 rev;
 in
 rec {
