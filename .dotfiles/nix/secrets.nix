@@ -72,7 +72,51 @@
       };
 
     };
+    allowedTCPPorts = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [
+        "111"
+        "222"
+        "3333"
+      ];
+      description = "A list of TCP ports";
+    };
+
+    allowedTCPPortsRanges = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [
+        "111:222"
+        "333:444"
+        "5555:6666"
+      ];
+      description = "A list of TCP ranges ports";
+    };
+
+    allowedUDPPorts = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [
+        "111"
+        "222"
+        "3333"
+      ];
+      description = "A list of UDP ports";
+    };
+
+    allowedUDPPortsRanges = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [
+        "111:222"
+        "333:444"
+        "5555:6666"
+      ];
+      description = "A list of UDP ranges ports";
+    };
   };
+
   config =
     let
       keyFile = ./secret-key;
@@ -84,6 +128,10 @@
         hostName = secrets.rage-hostName;
         syncthingUser = secrets.rage-syncthingUser;
         devices = secrets.rage-devices;
+        allowedTCPPorts = secrets.rage-darwin-networking-allowedTCPPorts;
+        allowedUDPPorts = secrets.rage-darwin-networking-allowedUDPPorts;
+        allowedTCPPortsRanges = secrets.rage-darwin-networking-allowedTCPPortsRanges;
+        allowedUDPPortsRanges = secrets.rage-darwin-networking-allowedUDPPortsRanges;
       };
     };
 }
