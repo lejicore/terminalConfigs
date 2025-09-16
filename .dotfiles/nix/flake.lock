@@ -30,6 +30,23 @@
         "type": "github"
       }
     },
+    "darwin-networking": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1757961905,
+        "narHash": "sha256-Kx45A1RSwzDVfoq9c/pcXpnCWWMSxBC2yXAPFV4DeSo=",
+        "path": "/Users/nebj/test/darwin-networking",
+        "type": "path"
+      },
+      "original": {
+        "path": "/Users/nebj/test/darwin-networking",
+        "type": "path"
+      }
+    },
     "emacs-overlay": {
       "inputs": {
         "nixpkgs": [
@@ -376,6 +393,7 @@
     },
     "root": {
       "inputs": {
+        "darwin-networking": "darwin-networking",
         "emacs-overlay": "emacs-overlay",
         "emacs-src": "emacs-src",
         "home-manager": "home-manager",
