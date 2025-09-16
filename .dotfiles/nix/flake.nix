@@ -12,6 +12,10 @@
       url = "github:LnL7/nix-darwin/master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    darwin-networking = {
+      url = "path:/Users/nebj/test/darwin-networking";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     mac-app-util.url = "github:hraban/mac-app-util";
     sops-nix.url = "github:Mic92/sops-nix";
@@ -45,19 +49,32 @@
     };
   };
 
-  outputs = inputs@{ self, home-manager, nix-darwin, nixpkgs, mac-app-util, emacs-overlay, nix-rage, sops-nix, rust-overlay, emacs-src}:
+  outputs =
+    inputs@{
+      self,
+      home-manager,
+      nix-darwin,
+      darwin-networking,
+      nixpkgs,
+      mac-app-util,
+      emacs-overlay,
+      nix-rage,
+      sops-nix,
+      rust-overlay,
+      emacs-src,
+    }:
     let
       pkg-config = {
         allowUnfree = true;
         allowBroken = true;
         allowInsecure = false;
       };
-      common-overlays =
-        [
-          # default emacs-overlay (overriden by ./overlays/emacs.nix)
-          (import emacs-overlay)
-	  (import rust-overlay)
-        ] ++ import ./overlays {inherit inputs;};
+      common-overlays = [
+        # default emacs-overlay (overriden by ./overlays/emacs.nix)
+        (import emacs-overlay)
+        (import rust-overlay)
+      ]
+      ++ import ./overlays { inherit inputs; };
       darwin-pkgs = import nixpkgs {
         # M1
         system = "aarch64-darwin";
@@ -65,84 +82,103 @@
         overlays = common-overlays;
       };
       # We import our separate "sops.nix" module, which defines the secret "user"
-      sopsModule = import ./sops.nix {inherit inputs;};
+      sopsModule = import ./sops.nix { inherit inputs; };
       secrets = import ./secrets.nix {
-	inherit (darwin-pkgs) lib config;
-	inherit pkg-config;} ;
-      rage-username = secrets.config.rage-username;
-      rage-hostName = secrets.config.rage-hostName;
+        inherit (darwin-pkgs) lib config;
+        inherit pkg-config;
+      };
+      rage-username = secrets.config.rage.username;
+      rage-hostName = secrets.config.rage.hostName;
 
-      # This module references config.sops.secrets.user.contents 
+      # This module references config.sops.secrets.user.contents
       # and sets up home-manager.users."<secret>"
     in
-      {
-	# NixOS system-wide home-manager configuration
-	home-manager.sharedModules = [
-	  inputs.sops-nix.homeManagerModules.sops
-	  secrets
-	];
-	# $ darwin-rebuild switch .
-	darwinConfigurations.default = nix-darwin.lib.darwinSystem {
-          pkgs = darwin-pkgs;
-          system = "aarch64-darwin";
-          modules = [
-	    # First load sops so the secrets are available
-	    sops-nix.darwinModules.sops
-	    sopsModule
-            mac-app-util.darwinModules.default
-            home-manager.darwinModules.home-manager {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-              home-manager.users."${rage-username}" = import ./home.nix;
+    {
+      # NixOS system-wide home-manager configuration
+      home-manager.sharedModules = [
+        inputs.sops-nix.homeManagerModules.sops
+        ./secrets.nix
+      ];
+      # $ darwin-rebuild switch .
+      darwinConfigurations.default = nix-darwin.lib.darwinSystem {
+        pkgs = darwin-pkgs;
+        system = "aarch64-darwin";
+        modules = [
+          # First load sops so the secrets are available
+          sops-nix.darwinModules.sops
+          sopsModule
+          mac-app-util.darwinModules.default
+          home-manager.darwinModules.home-manager
+          {
+            home-manager.useGlobalPkgs = true;
+            home-manager.useUserPackages = true;
+            home-manager.users."${rage-username}" = import ./home.nix;
 
-            }
-            ./darwin
-          ];
-          specialArgs = { inherit self inputs; };
-	};
-	darwinConfigurations."Personal-Darwin-Air" = nix-darwin.lib.darwinSystem {
-          pkgs = darwin-pkgs;
-          system = "aarch64-darwin";
-          modules = [
-	    {
-              nix.extraOptions = let
-		nix-rage-package = nix-rage.packages."aarch64-darwin".default;
-              in ''
-		plugin-files = ${nix-rage-package}/lib/libnix_rage.dylib
-              '';
-            }
-	    {networking.hostName = rage-hostName;}
-	    ./secrets.nix
-            mac-app-util.darwinModules.default
-            home-manager.darwinModules.home-manager {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-	      home-manager.backupFileExtension = "Backup";
-	      home-manager.users.${rage-username}.imports = [ ./home.nix secrets ];
-            }
-            ./darwin
-          ];
-          specialArgs = { inherit self inputs; };
-	};
-	# Build darwin flake using:
-	# $ darwin-rebuild build --flake .#simple
-	darwinConfigurations."simple" = nix-darwin.lib.darwinSystem {
-          pkgs = darwin-pkgs;
-          system = "aarch64-darwin";
-          modules = [
-            ./darwin
-            { nixpkgs.overlays = import ./overlays; }
-          ];
-	};
-	# Build home-manager flake using:
-	# home-manager switch --flake .#user
-	homeConfigurations.${rage-username} = home-manager.lib.homeManagerConfiguration {
-	  pkgs = darwin-pkgs; # Match your system architecture
-	  modules = [ 
-	    ./home.nix 
-	    ./secrets.nix
-	  ];
-	  extraSpecialArgs = { inherit inputs self; };
-	};
+          }
+          ./darwin
+        ];
+        specialArgs = { inherit self inputs; };
       };
+      darwinConfigurations."Personal-Darwin-Air" = nix-darwin.lib.darwinSystem {
+        pkgs = darwin-pkgs;
+        system = "aarch64-darwin";
+        modules = [
+          {
+            nix.settings.plugin-files = [
+              "${nix-rage.packages.${darwin-pkgs.system}.default}/lib/libnix_rage.dylib"
+              #"/Users/Nebj/test/libnix_rage.dylib"
+            ];
+          }
+          { networking.hostName = rage-hostName; }
+          ./secrets.nix
+          mac-app-util.darwinModules.default
+          home-manager.darwinModules.home-manager
+          {
+            home-manager.useGlobalPkgs = true;
+            home-manager.useUserPackages = true;
+            home-manager.backupFileExtension = "Backup";
+            home-manager.users.${rage-username}.imports = [
+              ./home.nix
+              ./secrets.nix
+            ];
+          }
+          ./darwin
+
+          darwin-networking.darwinModules.newFirewall
+
+          {
+            darwin-networking.newFirewall = {
+              enable = false;
+              managePfConf = true;
+              anchorName = "nix-firewall";
+              allowedTCPPorts = secrets.config.rage.allowedTCPPorts;
+              allowedUDPPorts = secrets.config.rage.allowedUDPPorts;
+              allowedTCPPortsRanges = secrets.config.rage.allowedTCPPortsRanges;
+              allowedUDPPortsRanges = secrets.config.rage.allowedUDPPortsRanges;
+            };
+          }
+        ];
+        specialArgs = { inherit self inputs; };
+      };
+      # Build darwin flake using:
+      # $ darwin-rebuild build --flake .#simple
+      darwinConfigurations."simple" = nix-darwin.lib.darwinSystem {
+        pkgs = darwin-pkgs;
+        system = "aarch64-darwin";
+        modules = [
+          ./darwin
+          { nixpkgs.overlays = import ./overlays; }
+        ];
+      };
+      # Build home-manager flake using:
+      # home-manager switch --flake .#user
+      homeConfigurations.${rage-username} = home-manager.lib.homeManagerConfiguration {
+        pkgs = darwin-pkgs; # Match your system architecture
+        modules = [
+          ./home.nix
+          ./secrets.nix
+        ];
+        extraSpecialArgs = { inherit inputs self; };
+      };
+    };
 }
