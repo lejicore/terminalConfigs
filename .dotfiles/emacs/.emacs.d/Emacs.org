@@ -1492,6 +1492,8 @@ Unbind "*C-\*", then remap toggle-input-method to "*C-|*" so we can allow "*C-\*
     ))
 
 (with-eval-after-load 'evil
+    (keymap-global-set "C-\\ l" #'my/switch-to-persp-last-non-vterm-buffer)
+
 (let ((i 1))
 (while (< i 10)  ;; Loop from 0 to 9
   (let* ((current-i i)
