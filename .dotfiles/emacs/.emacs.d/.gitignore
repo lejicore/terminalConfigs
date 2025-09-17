@@ -4,5 +4,6 @@
 
 !/init.el
 !Emacs.org
+!vterm-renamer.el
 !snippets
 !.gitignore
