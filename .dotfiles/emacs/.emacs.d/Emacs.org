@@ -19,6 +19,7 @@ Uncomment [[;;(advice-add 'garbage-collect][;;(advice-add 'garbage...]] if you w
 
 #+begin_src emacs-lisp
 ;;; -*- lexical-binding: t; -*-
+(require 'gcmh)
 (setenv "LSP_USE_PLISTS" "true")
 (setq gc-cons-threshold most-positive-fixnum
     read-process-output-max (* 4 1024 1024) ;; 4mb
