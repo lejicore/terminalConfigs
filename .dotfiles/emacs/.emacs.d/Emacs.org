@@ -1288,6 +1288,10 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
         (kbd "C-6")
         #'my/switch-to-persp-last-non-vterm-buffer)
     
+    (evil-define-key '(visual insert normal)
+        vterm-mode-map
+        (kbd "C-\\ l")
+        #'my/switch-to-persp-last-non-vterm-buffer)
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-{") 'multi-vterm-prev)
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
 
@@ -1345,6 +1349,7 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
   ;; Bind some useful keys for evil-mode
   (evil-define-key '(normal insert visual) eshell-mode-map (kbd "<home>") 'eshell-bol)
 (evil-define-key '(visual insert normal) eshell-mode-map (kbd "C-6") #'my/switch-to-persp-last-non-vterm-buffer)
+(evil-define-key '(visual insert normal) eshell-mode-map (kbd "C-\\ l") #'my/switch-to-persp-last-non-vterm-buffer)
   (setq eshell-history-size 10000
 	eshell-buffer-maximun-lines 10000
 	eshell-hist-ignoredups t
