@@ -73,9 +73,9 @@ BUFFER can be a buffer object, buffer name or nil for `current-buffer'."
                           hist)))
         target))
 
-;;; --- Public recorders (compatible with your existing calls) ----------------
+;;; --- Public recorders (compatible with existing calls) ----------------
 
-(defun my/get-persp-non-vterm-current-buffer (&rest _) ; keeps your original API
+(defun my/get-persp-non-vterm-current-buffer (&rest _)
     (let ((buf (current-buffer)))
         (unless (or (my/vterm-buffer-p buf) (minibufferp buf))
             (my/record-into-history buf))))
@@ -115,7 +115,7 @@ command when no history is available."
             (t
                 (message "No recorded non-vterm buffer")))))
 
-;;; --- Smart kill: command + (optional) advice -------------------------------
+;;; ------------------- Smart kill: command -------------------------------
 
 (defun my/kill-current-buffer-smart (&optional arg)
     "Kill current buffer, then jump to the previous buffer of the *same class*.
@@ -150,8 +150,31 @@ With ARG, pass it through to `kill-current-buffer'."
                 ((fboundp 'evil-switch-to-windows-last-buffer)
                     (evil-switch-to-windows-last-buffer))
                 (t (message "No recorded buffer of the same class; stayed on default next buffer."))))))
-;; Enable the advice (comment out if you prefer the explicit command instead):
-(advice-add 'kill-current-buffer :around #'my/kill-current-buffer--around)
+
+;;; --- Jump after any kill (vterm or not) ------------------------------------
+
+(defun my/kill-buffer-jump-same-class ()
+  "When the current buffer is being killed, schedule a jump to a prior buffer
+of the same class (vterm/non-vterm) for the selected window."
+  (let* ((buf (current-buffer)))
+    ;; Don’t interfere with minibuffer or internal buffers (names starting with space).
+    (unless (or (minibufferp buf)
+                (string-prefix-p " " (buffer-name buf)))
+      ;; Make sure this buffer was recorded at least once.
+      ;; (Important for vterm C-d where our around-advice is not involved.)
+      (my/record-into-history buf)
+      (let ((target (my/prev-of-same-class buf)))
+        ;; Defer the actual switch until after the kill finishes.
+        (when target
+          (run-at-time
+           0 nil
+           (lambda (tgt)
+             (when (and tgt (get-buffer tgt) (window-live-p (selected-window)))
+               (switch-to-buffer tgt)))
+           target))))))
+
+;; Install globally; Emacs will run this in the context of the buffer being killed.
+(add-hook 'kill-buffer-hook #'my/kill-buffer-jump-same-class)
 
 ;;; --- Keep histories fresh on window/buffer changes --------------------------
 
