@@ -489,6 +489,9 @@ Using persp-mode to create different workspaces
       "Update `my-dynamic-persps` with the current list of perspectives from `persp-names-cache`."
       (setq my-dynamic-persps (remove "none" persp-names-cache)))
 
+    ;; Backwards compatibility for legacy references without the trailing "s".
+    (defalias 'my-update-dynamic-persp #'my-update-dynamic-persps)
+
     (advice-add 'persp-kill :after (lambda (&rest _) (my-update-dynamic-persps)))
     (advice-add 'persp-switch :after (lambda (&rest _) (my-update-dynamic-persps)))
     (advice-add 'persp-add-new :after (lambda (&rest _) (my-update-dynamic-persps)))
