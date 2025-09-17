@@ -4,6 +4,9 @@
 (defvar my/vterm-buffer-created-at-table (make-hash-table :test 'eq)
     "Track the first-seen timestamp for each live vterm buffer.")
 
+(defvar my/vterm-buffer-persp-name-table (make-hash-table :test 'eq)
+    "Remember the sanitized perspective name for each vterm buffer.")
+
 (defvar my/vterm-rename-timer nil
     "Timer handle used to coalesce vterm rename requests.")
 
@@ -22,11 +25,16 @@
                 stamp))))
 
 (defun my/vterm--cleanup-tracking ()
-    "Remove dead buffers from `my/vterm-buffer-created-at-table'."
+    "Remove dead buffers from vterm bookkeeping tables."
     (maphash (lambda (buf _)
                  (unless (buffer-live-p buf)
-                     (remhash buf my/vterm-buffer-created-at-table)))
-        my/vterm-buffer-created-at-table))
+                     (remhash buf my/vterm-buffer-created-at-table)
+                     (remhash buf my/vterm-buffer-persp-name-table)))
+        my/vterm-buffer-created-at-table)
+    (maphash (lambda (buf _)
+                 (unless (buffer-live-p buf)
+                     (remhash buf my/vterm-buffer-persp-name-table)))
+        my/vterm-buffer-persp-name-table))
 
 (defun my/vterm--collect ()
     "Return all live buffers currently in `vterm-mode'."
@@ -41,7 +49,23 @@
     (cond
         ((framep persp) (and (fboundp 'get-frame-persp) (get-frame-persp persp)))
         ((and (fboundp 'perspective-p) (perspective-p persp)) persp)
+        ((stringp persp)
+            (cond
+                ((fboundp 'persp-get-by-name) (persp-get-by-name persp))
+                ((and (boundp 'perspectives-hash) (hash-table-p perspectives-hash))
+                    (gethash persp perspectives-hash))
+                (t nil)))
         (t nil)))
+
+(defun my/vterm--same-persp-p (a b)
+    "Return non-nil when A and B refer to the same perspective."
+    (let ((na (my/vterm--normalize-persp a))
+             (nb (my/vterm--normalize-persp b)))
+        (cond
+            ((and na nb) (eq na nb))
+            ((and (null na) (null nb))
+                (string= (my/vterm--persp-name a) (my/vterm--persp-name b)))
+            (t nil))))
 
 (defun my/vterm--current-persp ()
     "Return the currently active perspective object, or nil."
@@ -60,6 +84,11 @@
 (defun my/vterm--sanitize-persp-name (persp)
     "Return a sanitized name for PERSP suitable for buffer names."
     (replace-regexp-in-string "[^A-Za-z0-9_-]" "_" (my/vterm--persp-name persp)))
+
+(defun my/vterm--remember-buffer-prefix (buffer prefix)
+    "Record PREFIX as BUFFER's owning perspective name."
+    (when (and prefix (buffer-live-p buffer))
+        (puthash buffer prefix my/vterm-buffer-persp-name-table)))
 
 (defun my/vterm--buffers-for-persp (persp)
     "Return vterm buffers that belong to PERSP."
@@ -82,7 +111,7 @@
                     (t (< (or (cl-position a (buffer-list)) most-positive-fixnum)
                            (or (cl-position b (buffer-list)) most-positive-fixnum))))))))
 
-(defun my/vterm--rename-buffers (buffers formatter)
+(defun my/vterm--rename-buffers (buffers formatter &optional prefix)
     "Rename BUFFERS using FORMATTER, preserving order.
 FORMATTER receives the 1-based index of each buffer."
     (let ((sorted (my/vterm--sort buffers))
@@ -90,6 +119,7 @@ FORMATTER receives the 1-based index of each buffer."
         (dolist (buf sorted)
             (with-current-buffer buf
                 (rename-buffer (funcall formatter index) t))
+            (my/vterm--remember-buffer-prefix buf prefix)
             (setq index (1+ index)))
         (not (null sorted))))
 
@@ -100,19 +130,36 @@ FORMATTER receives the 1-based index of each buffer."
             (my/vterm--rename-buffers
                 buffers
                 (lambda (index)
-                    (format "*vterminal<%d>*" index)))
+                    (format "*vterminal<%d>*" index))
+                (and persp (my/vterm--sanitize-persp-name persp)))
             t)))
 
 (defun my/vterm--deactivate-persp (persp)
     "Rename vterm buffers belonging to PERSP using prefixed names."
     (when (and (boundp 'persp-mode) persp-mode)
-        (let ((buffers (my/vterm--buffers-for-persp persp))
-                 (prefix (my/vterm--sanitize-persp-name persp)))
+        (let ((buffers (my/vterm--buffers-for-persp persp)))
             (when buffers
-                (my/vterm--rename-buffers
-                    buffers
-                    (lambda (index)
-                        (format "*vterminal@%s<%d>*" prefix index)))
+                (if persp
+                    (let ((prefix (my/vterm--sanitize-persp-name persp)))
+                        (my/vterm--rename-buffers
+                            buffers
+                            (lambda (index)
+                                (format "*vterminal@%s<%d>*" prefix index))
+                            prefix))
+                    (let ((groups (make-hash-table :test #'equal)))
+                        (dolist (buf buffers)
+                            (let* ((stored (gethash buf my/vterm-buffer-persp-name-table))
+                                     (prefix (or stored "none"))
+                                     (bucket (gethash prefix groups)))
+                                (puthash prefix (cons buf bucket) groups)))
+                        (maphash
+                            (lambda (prefix grouped)
+                                (my/vterm--rename-buffers
+                                    grouped
+                                    (lambda (index)
+                                        (format "*vterminal@%s<%d>*" prefix index))
+                                    prefix))
+                            groups)))
                 t))))
 
 (defun my/vterm--with-rename-lock (fn)
@@ -149,12 +196,18 @@ FORMATTER receives the 1-based index of each buffer."
 (defun my/vterm--register-buffer ()
     "Track a new vterm buffer and queue a rename."
     (my/vterm--buffer-created-at (current-buffer))
+    (let ((persp (my/vterm--current-persp)))
+        (when persp
+            (my/vterm--remember-buffer-prefix
+                (current-buffer)
+                (my/vterm--sanitize-persp-name persp))))
     (my/vterm-modeline-update-hook)
     (my/vterm--schedule-rename 0.1))
 
 (defun my/vterm--cleanup-buffer ()
     "Forget a vterm buffer that is about to be killed."
     (remhash (current-buffer) my/vterm-buffer-created-at-table)
+    (remhash (current-buffer) my/vterm-buffer-persp-name-table)
     (my/vterm-modeline-update-hook)
     (my/vterm--schedule-rename 0.2))
 
@@ -171,10 +224,9 @@ FORMATTER receives the 1-based index of each buffer."
 
 (defun my/vterm--on-persp-before-switch (new-persp old-persp)
     "Rename buffers belonging to the old perspective before switching."
-    (ignore new-persp)
-    (let ((old (my/vterm--normalize-persp old-persp)))
-        (when old
-            (my/vterm--deactivate-persp old))))
+    (let ((normalized-old (my/vterm--normalize-persp old-persp)))
+        (unless (my/vterm--same-persp-p new-persp old-persp)
+            (my/vterm--deactivate-persp normalized-old))))
 
 (defun my/vterm--setup-persp-hooks ()
     "Attach vterm rename helpers to perspective change hooks."
