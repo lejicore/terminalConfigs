@@ -519,10 +519,28 @@ Using persp-mode to create different workspaces
     ;; Keybinding to create or switch to a named perspective
     (global-set-key (kbd "C-x p n") 'my-switch-to-persp)
 
-    ;; Keybindings for Alt+numbers
-    (dotimes (i 10)  ;; Loop from 0 to 9
-      (let ((key (format "%s-%d" my-switch-to-persp-key i)))
-	(global-set-key (kbd key) `(lambda () (interactive) (my-switch-to-persp-by-number ,i))))))
+    (defvar my-persp-number-key-bindings-installed nil
+      "Whether perspective number keybindings have been installed.")
+
+    (defun my/install-persp-number-keys ()
+      "Install perspective switching bindings for `%s-0`..`%s-9`."
+      (when (and (fboundp 'my-update-dynamic-persps)
+                 (boundp 'persp-names-cache))
+        (my-update-dynamic-persps))
+      (unless my-persp-number-key-bindings-installed
+        (dotimes (i 10)
+          (let* ((n i)
+                 (key (format "%s-%d" my-switch-to-persp-key n)))
+            (global-set-key
+             (kbd key)
+             (lambda ()
+               (interactive)
+               (my-switch-to-persp-by-number n)))))
+        (setq my-persp-number-key-bindings-installed t)))
+
+    (add-hook 'persp-mode-hook #'my/install-persp-number-keys)
+    (when (and (boundp 'persp-mode) persp-mode)
+      (my/install-persp-number-keys)))
   ;; (eval-after-load 'persp-mode
   ;;   '(my-update-dynamic-persps))
   (defvar my-persp-init-timer nil
@@ -530,7 +548,9 @@ Using persp-mode to create different workspaces
 
   (defun my-check-persp-init ()
     "Check if perspectives other than 'none' are available in `persp-names-cache` and initialize if so."
-    (when (and persp-names-cache (> (length persp-names-cache) 1))
+    (when (and (fboundp 'my-update-dynamic-persps)
+               persp-names-cache
+               (> (length persp-names-cache) 1))
       (my-update-dynamic-persps)
       (when my-persp-init-timer
 	(cancel-timer my-persp-init-timer)
