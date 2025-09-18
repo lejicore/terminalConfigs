@@ -1,4 +1,5 @@
 ;;; -*- lexical-binding: t; -*-
+(require 'gcmh)
 (setenv "LSP_USE_PLISTS" "true")
 (setq gc-cons-threshold most-positive-fixnum
     read-process-output-max (* 4 1024 1024) ;; 4mb
@@ -125,27 +126,27 @@
   (remq 'process-kill-buffer-query-function
          kill-buffer-query-functions))
 
-  (use-package doom-themes
-    :straight t
-    :config
-    ;; Global settings (defaults)
-    (setq doom-themes-enable-bold t    ; if nil, bold is universally disabled
+(use-package doom-themes
+  :straight t
+  :config
+  ;; Global settings (defaults)
+  (setq doom-themes-enable-bold t    ; if nil, bold is universally disabled
 	  doom-themes-enable-italic t) ; if nil, italics is universally disabled
-    ;;(load-theme 'doom-challenger-deep t)
-    ;;(load-theme 'doom-moonlight t)
-    (load-theme 'doom-outrun-electric t)
-    (set-face-attribute 'line-number nil :foreground "purple")
+  ;;(load-theme 'doom-challenger-deep t)
+  ;;(load-theme 'doom-moonlight t)
+  (load-theme 'doom-outrun-electric t)
+  (set-face-attribute 'line-number nil :foreground "purple")
 
 
-    ;; Enable flashing mode-line on errors
-    (doom-themes-visual-bell-config)
-    ;; Enable custom neotree theme (all-the-icons must be installed!)
-    (doom-themes-neotree-config)
-    ;; or for treemacs users
-    (setq doom-themes-treemacs-theme "doom-atom") ; use "doom-colors" for less minimal icon theme
-    (doom-themes-treemacs-config)
-    ;; Corrects (and improves) org-mode's native fontification.
-    (doom-themes-org-config))
+  ;; Enable flashing mode-line on errors
+  (doom-themes-visual-bell-config)
+  ;; Enable custom neotree theme (all-the-icons must be installed!)
+  (doom-themes-neotree-config)
+  ;; or for treemacs users
+  (setq doom-themes-treemacs-theme "doom-atom") ; use "doom-colors" for less minimal icon theme
+  (doom-themes-treemacs-config)
+  ;; Corrects (and improves) org-mode's native fontification.
+  (doom-themes-org-config))
 
 (use-package doom-modeline
   :straight t
@@ -154,7 +155,19 @@
   (doom-modeline-height 1)
   :config
   (set-face-attribute 'mode-line nil :height 150)
-  (setq doom-modeline-time-analogue-clock nil))
+  (setq doom-modeline-time-analogue-clock nil)
+
+  ;; Simple vterm count display in modeline without overriding doom-modeline
+  (defvar my/vterm-count-modeline-format
+    '(:eval (when (and (bound-and-true-p persp-mode)
+                       (fboundp 'my/persp-vterm-buffer-count))
+              (let ((count (my/persp-vterm-buffer-count)))
+                (when (and count (> count 0))
+                  (format " 🖥%d" count)))))
+    "Mode line format for vterm buffer count.")
+
+  ;; Add to mode-line-misc-info so it appears without disrupting doom-modeline
+  (add-to-list 'mode-line-misc-info my/vterm-count-modeline-format t))
 
 (setq inhibit-startup-message t ; Don't show the spalsh screen
       ring-bell-function 'ignore
@@ -237,33 +250,33 @@
   ;; per mode with `ligature-mode'.
   (global-ligature-mode t))
 
-  (use-package eaf
-    :disabled t
-    :straight t
-    :load-path "~/.cache/emacs/site-lisp/emacs-application-framework"
-    :custom
+(use-package eaf
+  :disabled t
+  :straight t
+  :load-path "~/.cache/emacs/site-lisp/emacs-application-framework"
+  :custom
 					  ; See https://github.com/emacs-eaf/emacs-application-framework/wiki/Customization
-    (eaf-browser-continue-where-left-off t)
-    (eaf-browser-enable-adblocker t)
-    (browse-url-browser-function 'eaf-open-browser)
-    ;;(eaf-browser-auto-import-chrome-cookies t)
-    :config
-    (defalias 'browse-web #'eaf-open-browser)
-    ;; (eaf-bind-key scroll_up "C-n" eaf-pdf-viewer-keybinding)
-    ;; (eaf-bind-key scroll_down "C-p" eaf-pdf-viewer-keybinding)
-    ;; (eaf-bind-key take_photo "p" eaf-camera-keybinding)
-    ;; (eaf-bind-key nil "M-q" eaf-browser-keybinding)) ;; unbind, see more in the Wiki
-  ;; (setq eaf-webengine-pc-user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
-  (setq eaf-webengine-pc-user-agent "Mozilla/5.0 (X11; Linux i686; rv:109.0) Gecko/20100101 Firefox/118.0")
-    (require 'eaf-browser))
-  ;;(global-unset-key (kbd "<f1>"))
-  ;;(define-key eaf-mode-map (kbd "<f1>") #'eaf-send-key)
+  (eaf-browser-continue-where-left-off t)
+  (eaf-browser-enable-adblocker t)
+  (browse-url-browser-function 'eaf-open-browser)
+  ;;(eaf-browser-auto-import-chrome-cookies t)
+  :config
+  (defalias 'browse-web #'eaf-open-browser)
+  ;; (eaf-bind-key scroll_up "C-n" eaf-pdf-viewer-keybinding)
+  ;; (eaf-bind-key scroll_down "C-p" eaf-pdf-viewer-keybinding)
+  ;; (eaf-bind-key take_photo "p" eaf-camera-keybinding)
+  ;; (eaf-bind-key nil "M-q" eaf-browser-keybinding)) ;; unbind, see more in the Wiki
+;; (setq eaf-webengine-pc-user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
+(setq eaf-webengine-pc-user-agent "Mozilla/5.0 (X11; Linux i686; rv:109.0) Gecko/20100101 Firefox/118.0")
+  (require 'eaf-browser))
+;;(global-unset-key (kbd "<f1>"))
+;;(define-key eaf-mode-map (kbd "<f1>") #'eaf-send-key)
 
 
-  ;;(require 'eaf-pyqterminal)
-  ;;(require 'eaf-pdf-viewer)
+;;(require 'eaf-pyqterminal)
+;;(require 'eaf-pdf-viewer)
 
-  (use-package persp-mode
+(use-package persp-mode
     :straight t
     :defer t
     ;;:hook (persp-mode-hook . my-update-dynamic-persps)
@@ -271,6 +284,7 @@
     (add-hook 'window-setup-hook #'(lambda () (persp-mode 1)))
     ;;(add-hook 'persp-mode-hook 'my-update-dynamic-persps)
     :config
+      (load-file "vterm-renamer.el")
 
 
     (defun consult-persp-buffer ()
@@ -300,6 +314,39 @@
     ;; Add the custom filter function
     (add-hook 'persp-common-buffer-filter-functions #'my-persp-buffer-filter)
 
+    (defun my/persp-vterm-buffer-count ()
+      "Return the number of multi-vterm buffers (*vterminal<N>*) in the current perspective."
+      (when (and (boundp 'persp-mode) persp-mode
+                 (fboundp 'persp-buffer-list-restricted))
+        (cl-loop for buf in (persp-buffer-list-restricted)
+                 when (and (buffer-live-p buf)
+                           (eq (buffer-local-value 'major-mode buf) 'vterm-mode)
+                           (string-match-p "^\\*vterminal<[0-9]+>\\*$" (buffer-name buf)))
+                 count buf)))
+
+    ;; Function to update modeline when vterm count changes
+    (defun my/update-vterm-count-modeline ()
+      "Update the doom-modeline to reflect vterm buffer count changes."
+      (when (bound-and-true-p doom-modeline-mode)
+        (doom-modeline-refresh-bars)))
+
+    ;; Hook to update modeline when vterm buffers are created/destroyed
+    (defun my/vterm-modeline-update-hook ()
+      "Hook function to update modeline when vterm buffer state changes."
+      (run-with-idle-timer 0.1 nil #'my/update-vterm-count-modeline))
+
+    ;; Add hooks for vterm buffer creation and destruction
+    (add-hook 'vterm-mode-hook #'my/vterm-modeline-update-hook)
+    (add-hook 'kill-buffer-hook
+              (lambda ()
+                (when (eq major-mode 'vterm-mode)
+                  (my/vterm-modeline-update-hook))))
+
+    ;; Update modeline when switching perspectives
+    (when (fboundp 'persp-switch-hook)
+      (add-hook 'persp-switch-hook #'my/update-vterm-count-modeline))
+
+
     ;; Making harpoon maintaining a seperates set of bookmarks to each perspective
     ;; (defun harpoon--file-name ()
     ;;   "File name for harpoon on current project."
@@ -322,6 +369,7 @@
     (defun switch-to-last-persp-vterm ()
       "Switch to the last visited vterm buffer within the current perspective."
       (interactive)
+        (my/get-persp-non-vterm-current-buffer)
       (let ((last-persp-vterm-buffer (ox/find-first-vterm-in-persp)))
 	(message "vterm buffer is :%s" last-persp-vterm-buffer)
 	(if last-persp-vterm-buffer
@@ -388,6 +436,9 @@
       "Update `my-dynamic-persps` with the current list of perspectives from `persp-names-cache`."
       (setq my-dynamic-persps (remove "none" persp-names-cache)))
 
+    ;; Backwards compatibility for legacy references without the trailing "s".
+    (defalias 'my-update-dynamic-persp #'my-update-dynamic-persps)
+
     (advice-add 'persp-kill :after (lambda (&rest _) (my-update-dynamic-persps)))
     (advice-add 'persp-switch :after (lambda (&rest _) (my-update-dynamic-persps)))
     (advice-add 'persp-add-new :after (lambda (&rest _) (my-update-dynamic-persps)))
@@ -415,10 +466,28 @@
     ;; Keybinding to create or switch to a named perspective
     (global-set-key (kbd "C-x p n") 'my-switch-to-persp)
 
-    ;; Keybindings for Alt+numbers
-    (dotimes (i 10)  ;; Loop from 0 to 9
-      (let ((key (format "%s-%d" my-switch-to-persp-key i)))
-	(global-set-key (kbd key) `(lambda () (interactive) (my-switch-to-persp-by-number ,i))))))
+    (defvar my-persp-number-key-bindings-installed nil
+      "Whether perspective number keybindings have been installed.")
+
+    (defun my/install-persp-number-keys ()
+      "Install perspective switching bindings for `%s-0`..`%s-9`."
+      (when (and (fboundp 'my-update-dynamic-persps)
+                 (boundp 'persp-names-cache))
+        (my-update-dynamic-persps))
+      (unless my-persp-number-key-bindings-installed
+        (dotimes (i 10)
+          (let* ((n i)
+                 (key (format "%s-%d" my-switch-to-persp-key n)))
+            (global-set-key
+             (kbd key)
+             (lambda ()
+               (interactive)
+               (my-switch-to-persp-by-number n)))))
+        (setq my-persp-number-key-bindings-installed t)))
+
+    (add-hook 'persp-mode-hook #'my/install-persp-number-keys)
+    (when (and (boundp 'persp-mode) persp-mode)
+      (my/install-persp-number-keys)))
   ;; (eval-after-load 'persp-mode
   ;;   '(my-update-dynamic-persps))
   (defvar my-persp-init-timer nil
@@ -426,7 +495,9 @@
 
   (defun my-check-persp-init ()
     "Check if perspectives other than 'none' are available in `persp-names-cache` and initialize if so."
-    (when (and persp-names-cache (> (length persp-names-cache) 1))
+    (when (and (fboundp 'my-update-dynamic-persps)
+               persp-names-cache
+               (> (length persp-names-cache) 1))
       (my-update-dynamic-persps)
       (when my-persp-init-timer
 	(cancel-timer my-persp-init-timer)
@@ -1013,18 +1084,16 @@ folder, otherwise delete a word"
     ;; Remove mappings of alt+numbers from vterm
     (dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
         (define-key vterm-mode-map (kbd key) nil))
-    ;; switch to last buffer to a previous non vterm buffer within a vterm buffer
+    ;; switch to the most recent non vterm buffer within the current perspective
     (evil-define-key '(visual insert normal)
         vterm-mode-map
         (kbd "C-6")
-        (lambda()
-            (interactive)
-            (switch-to-buffer
-                (symbol-value
-                    (intern
-                        (format "my/last-non-vterm-buffer-on-%s-persp"
-                            (safe-persp-name (get-frame-persp))))))))
+        #'my/switch-to-persp-last-non-vterm-buffer)
     
+    (evil-define-key '(visual insert normal)
+        vterm-mode-map
+        (kbd "C-\\ l")
+        #'my/switch-to-persp-last-non-vterm-buffer)
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-{") 'multi-vterm-prev)
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
 
@@ -1075,7 +1144,8 @@ folder, otherwise delete a word"
 
   ;; Bind some useful keys for evil-mode
   (evil-define-key '(normal insert visual) eshell-mode-map (kbd "<home>") 'eshell-bol)
-(evil-define-key '(visual insert normal) eshell-mode-map (kbd "C-6") 'evil-switch-to-windows-last-buffer)
+(evil-define-key '(visual insert normal) eshell-mode-map (kbd "C-6") #'my/switch-to-persp-last-non-vterm-buffer)
+(evil-define-key '(visual insert normal) eshell-mode-map (kbd "C-\\ l") #'my/switch-to-persp-last-non-vterm-buffer)
   (setq eshell-history-size 10000
 	eshell-buffer-maximun-lines 10000
 	eshell-hist-ignoredups t
@@ -1092,20 +1162,92 @@ folder, otherwise delete a word"
     (setq eshell-destroy-buffer-when-process-dies t)
     (setq eshell-visual-commands '("htop" "zsh" "vim"))))
 
-(defun my/get-persp-non-vterm-current-buffer (&rest _)
-  "Save the name of the current buffer in the current perspective, but only if the current buffer is not a vterm buffer.
-The name of the buffer is stored in a variable named `my/last-non-vterm-buffer-on-<persp>-persp',
-where <persp> is the name of the current perspective, with any special characters escaped.
-This allows the last non-vterm buffer to be tracked on a per-perspective basis."
-  (let ((current-buffer-name (buffer-name (current-buffer))))
-      (unless (or (string-match-p "^\\*vterm\\(?:inal<[1-9]>\\)?\\*$" current-buffer-name)
-                  (string-match-p "\\*vterminal - dedicated\\*" current-buffer-name))
-          (set (intern (format "my/last-non-vterm-buffer-on-%s-persp"
-                           (safe-persp-name (get-frame-persp)))) current-buffer-name))))
+(load-file "delete-buffer-respect-vterm.el")
+;; (defvar my/non-vterm-buffer-history-limit 5
+;;   "Maximum number of non-vterm buffers remembered per perspective.")
 
-;; We advice multi-vterm and vterm to save the previous non vterm buffer even if we create new vterms
-(advice-add #'multi-vterm :before 'my/get-persp-non-vterm-current-buffer)
-(advice-add #'vterm :before 'my/get-persp-non-vterm-current-buffer)
+;; (defun my/vterm-buffer-p (&optional buffer)
+;;   "Return non-nil when BUFFER is a vterm buffer.
+;; BUFFER can be a buffer object, buffer name or nil for `current-buffer'."
+;;   (let ((buffer (cond
+;;                  ((bufferp buffer) buffer)
+;;                  ((stringp buffer) (get-buffer buffer))
+;;                  (t (current-buffer)))))
+;;     (when buffer
+;;       (with-current-buffer buffer
+;;         (derived-mode-p 'vterm-mode)))))
+
+;; (defun my/get-persp-non-vterm-current-buffer (&rest _)
+;;   "Record the active non-vterm buffer for the current perspective.
+;; The buffer history is stored per perspective so we can quickly jump back to
+;; recent non-vterm buffers even after visiting several vterms."
+;;   (let* ((persp (and (fboundp 'get-frame-persp) (get-frame-persp)))
+;;          (persp-name (cond
+;;                       ((and persp (fboundp 'safe-persp-name)) (safe-persp-name persp))
+;;                       (persp "global")
+;;                       (t "global")))
+;;          (current-buffer (current-buffer)))
+;;     (when (and persp-name
+;;                (not (my/vterm-buffer-p current-buffer))
+;;                (not (minibufferp current-buffer)))
+;;       (let* ((history-symbol (intern (format "my/non-vterm-buffer-history-on-%s-persp"
+;;                                              persp-name)))
+;;              (last-symbol (intern (format "my/last-non-vterm-buffer-on-%s-persp"
+;;                                           persp-name)))
+;;              (previous-symbol (intern (format "my/previous-non-vterm-buffer-on-%s-persp"
+;;                                               persp-name)))
+;;              (current-name (buffer-name current-buffer))
+;;              (history (when (boundp history-symbol)
+;;                         (symbol-value history-symbol)))
+;;              (history (cons current-name (delete current-name history)))
+;;              (tail history)
+;;              (count 1))
+;;         (while (and tail (< count my/non-vterm-buffer-history-limit))
+;;           (setq tail (cdr tail))
+;;           (setq count (1+ count)))
+;;         (when tail
+;;           (setcdr tail nil))
+;;         (set history-symbol history)
+;;         (set last-symbol (car history))
+;;         (set previous-symbol (cadr history))))))
+
+;; (defun my/switch-to-persp-last-non-vterm-buffer ()
+;;   "Jump to the most recent non-vterm buffer for the current perspective.
+;; From a vterm buffer go to the latest non-vterm buffer, otherwise jump to the
+;; previous non-vterm buffer if one exists. Fallback to the default last buffer
+;; command when no history is available."
+;;   (interactive)
+;;   (unless (my/vterm-buffer-p)
+;;     (my/get-persp-non-vterm-current-buffer))
+;;   (let* ((persp (and (fboundp 'get-frame-persp) (get-frame-persp)))
+;;          (persp-name (cond
+;;                       ((and persp (fboundp 'safe-persp-name)) (safe-persp-name persp))
+;;                       (persp "global")
+;;                       (t "global")))
+;;          (history-symbol (intern (format "my/non-vterm-buffer-history-on-%s-persp"
+;;                                          persp-name)))
+;;          (history (when (boundp history-symbol)
+;;                     (symbol-value history-symbol)))
+;;          (target-name (cond
+;;                        ((null history) nil)
+;;                        ((my/vterm-buffer-p) (car history))
+;;                        ((cdr history) (cadr history))
+;;                        (t (car history)))))
+;;     (cond
+;;      ((and target-name (get-buffer target-name))
+;;       (switch-to-buffer target-name))
+;;      ((fboundp 'evil-switch-to-windows-last-buffer)
+;;       (evil-switch-to-windows-last-buffer))
+;;      (t
+;;       (message "No recorded non-vterm buffer")))))
+
+;; ;; We advice multi-vterm and vterm to save the previous non vterm buffer even if we create new vterms
+;; (advice-add #'multi-vterm :before 'my/get-persp-non-vterm-current-buffer)
+;; (advice-add #'vterm :before 'my/get-persp-non-vterm-current-buffer)
+
+;; (with-eval-after-load 'evil
+;;   (dolist (state '(normal visual insert))
+;;     (evil-define-key state global-map (kbd "C-6") #'my/switch-to-persp-last-non-vterm-buffer)))
 
 (global-unset-key (kbd "C-\\"))
 (define-key global-map (kbd "C-|") #'toggle-input-method)
@@ -1131,6 +1273,8 @@ This allows the last non-vterm buffer to be tracked on a per-perspective basis."
     ))
 
 (with-eval-after-load 'evil
+    (keymap-global-set "C-\\ l" #'my/switch-to-persp-last-non-vterm-buffer)
+
 (let ((i 1))
 (while (< i 10)  ;; Loop from 0 to 9
   (let* ((current-i i)
@@ -2072,14 +2216,14 @@ because compile mode is too slow"
   :straight t
   :hook (org-mode . ox/org-mode-visual-fill))
 
-  (use-package org-superstar
-    :straight t
-    :after org
-    :config
-    ;;(setq org-superstar-hide-leading-stars t)
-    (setq org-superstar-leading-bullet " ")
-    ;; Hide away leading stars on terminal.
-    (setq org-superstar-leading-fallback ?\s))
+(use-package org-superstar
+  :straight t
+  :after org
+  :config
+  ;;(setq org-superstar-hide-leading-stars t)
+  (setq org-superstar-leading-bullet " ")
+  ;; Hide away leading stars on terminal.
+  (setq org-superstar-leading-fallback ?\s))
 
 (use-package org-modern
   :straight t
@@ -2487,7 +2631,7 @@ map)
 ;; (use-package org-web-tools
 ;;   :straight t)
 
-  ;; This package allow single buffer navigation in Dired
+;; This package allow single buffer navigation in Dired
   ;; like (dired-kill-when-opening-new-dired-buffer t) does
   ;; (use-package dired-single
   ;;   :config
@@ -3016,7 +3160,7 @@ map)
   :init
   (global-sops-mode 1))
 
-  (use-package reader
+(use-package reader
     :disabled t
     :straight '(reader :type git :host codeberg :repo "divyaranjan/emacs-reader"
   	      :files ("*.el" "render-core.dylib")
