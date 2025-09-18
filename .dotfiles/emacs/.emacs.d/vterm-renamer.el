@@ -85,6 +85,40 @@
     "Return a sanitized name for PERSP suitable for buffer names."
     (replace-regexp-in-string "[^A-Za-z0-9_-]" "_" (my/vterm--persp-name persp)))
 
+(defun my/vterm--multi-vterm-base-name ()
+    "Return the base buffer name used by multi-vterm."
+    (let ((candidate (and (boundp 'multi-vterm-buffer-name) multi-vterm-buffer-name)))
+        (if (and (stringp candidate) (> (length candidate) 0))
+            candidate
+            "vterminal")))
+
+(defun my/vterm--multi-vterm-dedicated-label ()
+    "Return the label used for multi-vterm's dedicated buffer."
+    (let ((candidate (and (boundp 'multi-vterm-dedicated-buffer-name) multi-vterm-dedicated-buffer-name)))
+        (if (and (stringp candidate) (> (length candidate) 0))
+            candidate
+            "dedicated")))
+
+(defun my/vterm--dedicated-buffer-p (buffer)
+    "Return non-nil when BUFFER is the multi-vterm dedicated buffer."
+    (when (buffer-live-p buffer)
+        (or (and (boundp 'multi-vterm-dedicated-buffer)
+                 (eq buffer multi-vterm-dedicated-buffer))
+            (let* ((name (buffer-name buffer))
+                     (base (my/vterm--multi-vterm-base-name))
+                     (label (my/vterm--multi-vterm-dedicated-label))
+                     (expected (format "*%s - %s*" base label)))
+                (string= name expected)))))
+
+(defun my/vterm--dedicated-target-name (prefix)
+    "Return the desired buffer name for the dedicated vterm buffer.
+PREFIX is the sanitized perspective name when available."
+    (let ((base (my/vterm--multi-vterm-base-name))
+           (label (my/vterm--multi-vterm-dedicated-label)))
+        (if (and prefix (> (length prefix) 0))
+            (format "*%s@%s - %s*" base prefix label)
+            (format "*%s - %s*" base label))))
+
 (defun my/vterm--remember-buffer-prefix (buffer prefix)
     "Record PREFIX as BUFFER's owning perspective name."
     (when (and prefix (buffer-live-p buffer))
@@ -117,10 +151,16 @@ FORMATTER receives the 1-based index of each buffer."
     (let ((sorted (my/vterm--sort buffers))
              (index 1))
         (dolist (buf sorted)
-            (with-current-buffer buf
-                (rename-buffer (funcall formatter index) t))
-            (my/vterm--remember-buffer-prefix buf prefix)
-            (setq index (1+ index)))
+            (if (my/vterm--dedicated-buffer-p buf)
+                (let ((name (my/vterm--dedicated-target-name nil)))
+                    (with-current-buffer buf
+                        (rename-buffer name t))
+                    (remhash buf my/vterm-buffer-persp-name-table))
+                (progn
+                    (with-current-buffer buf
+                        (rename-buffer (funcall formatter index) t))
+                    (my/vterm--remember-buffer-prefix buf prefix)
+                    (setq index (1+ index)))))
         (not (null sorted))))
 
 (defun my/vterm--activate-persp (persp)
