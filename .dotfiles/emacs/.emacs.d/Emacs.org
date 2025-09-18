@@ -3567,9 +3567,7 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
 	    :endpoint "/openai/v1/chat/completions"
 	    :stream t
 	    :key #'my-groq-api-key                   ;can be a function that returns the key
-	    :models '(llama-3.3-70b-versatile
-		      mixtral-8x7b-32768
-		      gemma-7b-it))))
+	    :models '(openai/gpt-oss-120b llama-3.3-70b-versatile))))
   (my-groq-setup))
 #+end_src
 * package creation
