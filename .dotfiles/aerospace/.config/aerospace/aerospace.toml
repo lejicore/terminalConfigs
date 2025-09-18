@@ -197,7 +197,8 @@ alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
 alt-m = ['fullscreen --no-outer-gaps', 'exec-and-forget ~/.config/aerospace/update-borders.sh']
 
 # See: https://nikitabobko.github.io/AeroSpace/commands#mode
-alt-shift-semicolon = 'mode service'
+#alt-shift-semicolon = 'mode service'
+alt-shift-quote = 'mode service'
 
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
