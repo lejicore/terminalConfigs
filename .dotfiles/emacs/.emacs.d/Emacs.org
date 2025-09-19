@@ -2386,6 +2386,12 @@ because compile mode is too slow"
 
 	  ("W" "Work Tasks" tags-todo "+work-email")
 
+	  ;; Low-effort todo actions
+	  ("l" tags-todo "+TODO=\"TODO\"+Effort<15&+Effort>0"
+	   ((org-agenda-overriding-header "Low Effort Tasks")
+	    (org-agenda-max-todos 20)
+	    (org-agenda-files org-agenda-files)))
+
 	  ;; Low-effort next actions
 	  ("e" tags-todo "+TODO=\"NEXT\"+Effort<15&+Effort>0"
 	   ((org-agenda-overriding-header "Low Effort Tasks")
