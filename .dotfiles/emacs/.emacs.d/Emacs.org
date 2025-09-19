@@ -3517,6 +3517,7 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
   :straight t
   :after general
   :config
+    (setq gptel-default-mode #'org-mode)
   (ox/leader-keys
     "g" '(:ignore t :which-key "gptel")
     "gm" '(gptel-menu :which-key "Open gptel-menu")
