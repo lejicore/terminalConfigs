@@ -2478,6 +2478,12 @@ because compile mode is too slow"
 	  ("w" "Workflows")
 	  ("we" "Checking Email" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
 	   "* Checking Email :email:\n\n%?" :clock-in :clock-resume :empty-lines 1)
+	  ("wt" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	   "* WAIT %?\n  %U\n  %i" :empty-lines 1)
+	  ("wc" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	   "* TODO %?\n  %U\n  %a\n  %i" :empty-lines 1)
+	  ("wc" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	   "* WAIT %?\n  %U\n  %i" :empty-lines 1)
 
 	  ("v" "Activities")
 	  ("va" "Activities idea" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
