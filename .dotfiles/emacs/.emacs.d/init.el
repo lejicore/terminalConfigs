@@ -284,7 +284,7 @@
     (add-hook 'window-setup-hook #'(lambda () (persp-mode 1)))
     ;;(add-hook 'persp-mode-hook 'my-update-dynamic-persps)
     :config
-      (load-file "vterm-renamer.el")
+      (load-file "~/terminalConfigs/.dotfiles/emacs/.emacs.d/vterm-renamer.el")
 
 
     (defun consult-persp-buffer ()
@@ -1162,7 +1162,7 @@ folder, otherwise delete a word"
     (setq eshell-destroy-buffer-when-process-dies t)
     (setq eshell-visual-commands '("htop" "zsh" "vim"))))
 
-(load-file "delete-buffer-respect-vterm.el")
+(load-file "~/terminalConfigs/.dotfiles/emacs/.emacs.d/delete-buffer-respect-vterm.el")
 ;; (defvar my/non-vterm-buffer-history-limit 5
 ;;   "Maximum number of non-vterm buffers remembered per perspective.")
 
@@ -2407,8 +2407,21 @@ because compile mode is too slow"
 
   (setq org-roam-directory (file-truename (format "%s/org-roam" my-org-directory)))
   (setq org-roam-completion-everywhere t)
-   (org-roam-db-autosync-enable)
-)
+   (org-roam-db-autosync-enable))
+
+(use-package org-roam-ui
+  :straight
+    (:host github :repo "org-roam/org-roam-ui" :branch "main" :files ("*.el" "out"))
+    :after org-roam
+;;         normally we'd recommend hooking orui after org-roam, but since org-roam does not have
+;;         a hookable mode anymore, you're advised to pick something yourself
+;;         if you don't care about startup time, use
+;;  :hook (after-init . org-roam-ui-mode)
+    :config
+    (setq org-roam-ui-sync-theme t
+          org-roam-ui-follow t
+          org-roam-ui-update-on-save t
+          org-roam-ui-open-on-start t))
 
 (use-package orgnote
   :disabled t
@@ -3139,10 +3152,22 @@ map)
 	    :endpoint "/openai/v1/chat/completions"
 	    :stream t
 	    :key #'my-groq-api-key                   ;can be a function that returns the key
-	    :models '(llama-3.3-70b-versatile
-		      mixtral-8x7b-32768
-		      gemma-7b-it))))
+	    :models '(openai/gpt-oss-120b llama-3.3-70b-versatile))))
   (my-groq-setup))
+
+(add-to-list 'load-path "~/git_builds/gptel-tool-library")
+(require 'gptel-tool-library)
+(dolist (module '("bbdb" "buffer" "elisp" "emacs" "gnus" "os"))
+  (gptel-tool-library-load-module module))
+
+(gptel-make-tool
+ :function #'dired
+ :name  "open_dired"
+ :description "Use dired to show files in path. After calling this tool, stop. Then continue fulfilling user's request."
+ :args (list '(:name "path"
+                     :type string
+                     :description "The path to show files."))
+ :category "emacs")
 
 (use-package package-build
   :straight t)
