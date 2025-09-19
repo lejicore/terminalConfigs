@@ -337,7 +337,7 @@ Using persp-mode to create different workspaces
     (add-hook 'window-setup-hook #'(lambda () (persp-mode 1)))
     ;;(add-hook 'persp-mode-hook 'my-update-dynamic-persps)
     :config
-      (load-file "vterm-renamer.el")
+      (load-file "~/terminalConfigs/.dotfiles/emacs/.emacs.d/vterm-renamer.el")
 
 
     (defun consult-persp-buffer ()
@@ -1398,7 +1398,7 @@ Bind =C-6= to =my/switch-to-persp-last-non-vterm-buffer= to jump between the las
 
 
 #+begin_src emacs-lisp
-(load-file "delete-buffer-respect-vterm.el")
+(load-file "~/terminalConfigs/.dotfiles/emacs/.emacs.d/delete-buffer-respect-vterm.el")
 ;; (defvar my/non-vterm-buffer-history-limit 5
 ;;   "Maximum number of non-vterm buffers remembered per perspective.")
 
