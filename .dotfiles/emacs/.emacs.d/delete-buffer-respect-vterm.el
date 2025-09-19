@@ -153,13 +153,32 @@ With ARG, pass it through to `kill-current-buffer'."
 
 ;;; --- Jump after any kill (vterm or not) ------------------------------------
 
+(defvar my/kill-buffer-jump-commands
+    '(kill-this-buffer kill-current-buffer kill-buffer my/kill-current-buffer-smart)
+    "Interactive commands that should trigger `my/kill-buffer-jump-same-class'.
+Commands can opt-in dynamically by putting the property
+`my/kill-buffer-jump-same-class' on their symbol.")
+
+(defun my/kill-buffer--command-triggers-jump-p (buffer)
+    "Return non-nil when the current kill should trigger a jump.
+BUFFER is the buffer being killed."
+    (let* ((cmd (or this-command (and (boundp 'real-this-command) real-this-command)))
+             (trigger (or (memq cmd my/kill-buffer-jump-commands)
+                          (and (symbolp cmd)
+                               (get cmd 'my/kill-buffer-jump-same-class))
+                          (and (null cmd)
+                               (my/vterm-buffer-p buffer)))))
+        trigger))
+
 (defun my/kill-buffer-jump-same-class ()
   "When the current buffer is being killed, schedule a jump to a prior buffer
 of the same class (vterm/non-vterm) for the selected window."
   (let* ((buf (current-buffer)))
     ;; Don’t interfere with minibuffer or internal buffers (names starting with space).
     (unless (or (minibufferp buf)
-                (string-prefix-p " " (buffer-name buf)))
+                (string-prefix-p " " (buffer-name buf))
+                (not (eq buf (window-buffer (selected-window))))
+                (not (my/kill-buffer--command-triggers-jump-p buf)))
       ;; Make sure this buffer was recorded at least once.
       ;; (Important for vterm C-d where our around-advice is not involved.)
       (my/record-into-history buf)
