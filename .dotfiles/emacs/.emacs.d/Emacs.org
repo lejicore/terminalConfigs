@@ -3543,6 +3543,14 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
 	  (funcall (plist-get (car auth-info) :secret))
 	(error "OpenAI API key not found in .authinfo"))))
 
+  (defun my-openrouter-api-key ()
+    (let ((auth-info (auth-source-search
+		      :host "api.openrouter.ai"
+		      :user "apikey"
+		      :require '(:secret))))
+      (if auth-info
+	  (funcall (plist-get (car auth-info) :secret))
+	(error "OpenRouter API key not found in .authinfo"))))
   ;; (defun my-mistral-api-key ()
   ;;   (let ((auth-info (auth-source-search
   ;; 		      :host "api.mistral.ai"
@@ -3569,6 +3577,15 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
 	    :stream t
 	    :key #'my-groq-api-key                   ;can be a function that returns the key
 	    :models '(openai/gpt-oss-120b llama-3.3-70b-versatile))))
+  (defun my-groq-setup ()
+    (setq gptel-model   'llama-3.3-70b-versatile
+	  gptel-backend
+	  (gptel-make-openai "OpenRouter"               ;Any name you want
+	    :host "openrouter.ai"
+	    :endpoint "/api/v1/chat/completions"
+	    :stream t
+	    :key #'my-openrouter-api-key                   ;can be a function that returns the key
+	    :models '(deepseek/deepseek-chat-v3.1:free deepseek/deepseek-r1-0528:free))))
   (my-groq-setup))
 #+end_src
 ** gptel-tools
