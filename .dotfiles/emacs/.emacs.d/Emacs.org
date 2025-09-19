@@ -3570,6 +3570,24 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
 	    :models '(openai/gpt-oss-120b llama-3.3-70b-versatile))))
   (my-groq-setup))
 #+end_src
+** gptel-tools
+#+begin_src emacs-lisp
+(add-to-list 'load-path "~/git_builds/gptel-tool-library")
+(require 'gptel-tool-library)
+(dolist (module '("bbdb" "buffer" "elisp" "emacs" "gnus" "os"))
+  (gptel-tool-library-load-module module))
+
+(gptel-make-tool
+ :function #'dired
+ :name  "open_dired"
+ :description "Use dired to show files in path. After calling this tool, stop. Then continue fulfilling user's request."
+ :args (list '(:name "path"
+                     :type string
+                     :description "The path to show files."))
+ :category "emacs")
+
+
+#+end_src
 * package creation
 #+begin_src emacs-lisp
 (use-package package-build
