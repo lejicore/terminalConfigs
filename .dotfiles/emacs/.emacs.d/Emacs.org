@@ -1813,10 +1813,6 @@ because compile mode is too slow"
 
 (use-package nix-ts-mode
   :straight t
-  :mode "\\.nix\\'"
-  )
-(use-package nix-ts-mode
-  :straight t
  :mode "\\.nix\\'")
 
 (use-package php-ts-mode
