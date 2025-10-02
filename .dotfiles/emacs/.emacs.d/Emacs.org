@@ -146,6 +146,14 @@ We use the no-littering package to keep folders where we edit files and the Emac
 
 (setq auto-save-file-name-transforms
       `((".*" ,(no-littering-expand-var-file-name "auto-save/") t)))
+
+;; keep ~ files in .cache folder
+(setq backup-directory-alist `(("." . "~/.cache/emacs/saves")))
+(setq backup-by-copying t) ;; make backup files by copying
+(setq delete-old-versions t
+  kept-new-versions 6
+  kept-old-versions 2
+  version-control t)
 #+end_src
 * Tweak yes or no prompts
 #+begin_src emacs-lisp
