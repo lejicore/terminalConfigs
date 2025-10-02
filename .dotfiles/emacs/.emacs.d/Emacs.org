@@ -3053,6 +3053,9 @@ We are using consult-dash as an ui-front end to parse dash-docs
   :init
   (dirvish-override-dired-mode)
   :config
+    (setq dirvish-attributes
+      '(file-modes ; <-- shows rwxr-xr-x style permissions
+        file-size))
     (defun my/faster-dirvish-previews ()
     "Disable intensive mode in file manager buffers."
     (when (or (derived-mode-p 'dired-mode)
