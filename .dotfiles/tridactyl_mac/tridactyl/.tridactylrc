@@ -46,14 +46,18 @@ set searchurls.coc https://clashofclans.fandom.com/wiki/Special:Search?query=%s1
 set searchurls.pv https://pvpoke.com/rankings/all/%s1/overall/%s2/
 
 set searchurls.lsp https://github.com/neovim/nvim-lspconfig/blob/master/doc/configs.md#
-set searchurls.c https://devdocs.io/#q=
+set searchurls.dev https://devdocs.io/#q=
+set searchurls.xin https://learnxinyminutes.com/
+
 " set searchurls.cg https://chat.openai.com/?model=gpt-4o&q=
 set searchurls.cg https://chatgpt.com/?model=gpt-5-auto&q=
+set searchurls.tcg https://chatgpt.com/?model=auto&temporary-chat=true&hints=search&q=
 set searchurls.cgc https://chatgpt.com/?model=gpt-4o-canmore&q=
 set searchurls.co https://chatgpt.com/?model=o4-mini-high&q=
 
 set searchurls.lc https://chat.mistral.ai/chat?model=codestral&q=
 set searchurls.pe https://www.perplexity.ai/search?q=
+set searchurls.k https://www.kagi.com/search?q=
 
 set searchurls.dle https://www.deepl.com/fr/translator#en/fr/
 set searchurls.dlf https://www.deepl.com/fr/translator#fr/en/
