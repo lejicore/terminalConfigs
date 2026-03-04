@@ -265,14 +265,17 @@ result=$(Command)
 if [[ "$result" == "v16.10.0" ]]; then
   source <(ng completion script)
 fi
-export TERM=xterm-kitty
 #export TERM=tmux-256color
 # export TERM=xterm-256color
 #export NVIM_LISTEN_ADDRESS=/tmp/nvim-$(basename $PWD)
 export NVIM_APPNAME="nvim"
 ## uncomment below line to allow shell integration with wezterm using wezterm.sh
 #source ~/wezterm.sh
-
+if [ "$INSIDE_EMACS" = 'vterm' ]; then
+    export TERM=xterm-256color
+else
+    export TERM=xterm-kitty
+fi
 # for vterm of emacs to pass messages between vterm and the shell
 vterm_printf(){
   if [ -n "$TMUX" ] && ([ "${TERM%%-*}" = "tmux" ] || [ "${TERM%%-*}" = "screen" ] ); then
