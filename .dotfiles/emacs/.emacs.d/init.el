@@ -115,6 +115,14 @@
 (setq auto-save-file-name-transforms
       `((".*" ,(no-littering-expand-var-file-name "auto-save/") t)))
 
+;; keep ~ files in .cache folder
+(setq backup-directory-alist `(("." . "~/.cache/emacs/saves")))
+(setq backup-by-copying t) ;; make backup files by copying
+(setq delete-old-versions t
+  kept-new-versions 6
+  kept-old-versions 2
+  version-control t)
+
 ;; Replace yes-or-no-p with y-or-n-p
 (setq use-short-answers t)
 
@@ -126,27 +134,27 @@
   (remq 'process-kill-buffer-query-function
          kill-buffer-query-functions))
 
-(use-package doom-themes
-  :straight t
-  :config
-  ;; Global settings (defaults)
-  (setq doom-themes-enable-bold t    ; if nil, bold is universally disabled
+  (use-package doom-themes
+    :straight t
+    :config
+    ;; Global settings (defaults)
+    (setq doom-themes-enable-bold t    ; if nil, bold is universally disabled
 	  doom-themes-enable-italic t) ; if nil, italics is universally disabled
-  ;;(load-theme 'doom-challenger-deep t)
-  ;;(load-theme 'doom-moonlight t)
-  (load-theme 'doom-outrun-electric t)
-  (set-face-attribute 'line-number nil :foreground "purple")
+    ;;(load-theme 'doom-challenger-deep t)
+    ;;(load-theme 'doom-moonlight t)
+    (load-theme 'doom-outrun-electric t)
+    (set-face-attribute 'line-number nil :foreground "purple")
 
 
-  ;; Enable flashing mode-line on errors
-  (doom-themes-visual-bell-config)
-  ;; Enable custom neotree theme (all-the-icons must be installed!)
-  (doom-themes-neotree-config)
-  ;; or for treemacs users
-  (setq doom-themes-treemacs-theme "doom-atom") ; use "doom-colors" for less minimal icon theme
-  (doom-themes-treemacs-config)
-  ;; Corrects (and improves) org-mode's native fontification.
-  (doom-themes-org-config))
+    ;; Enable flashing mode-line on errors
+    (doom-themes-visual-bell-config)
+    ;; Enable custom neotree theme (all-the-icons must be installed!)
+    (doom-themes-neotree-config)
+    ;; or for treemacs users
+    (setq doom-themes-treemacs-theme "doom-atom") ; use "doom-colors" for less minimal icon theme
+    (doom-themes-treemacs-config)
+    ;; Corrects (and improves) org-mode's native fontification.
+    (doom-themes-org-config))
 
 (use-package doom-modeline
   :straight t
@@ -250,33 +258,33 @@
   ;; per mode with `ligature-mode'.
   (global-ligature-mode t))
 
-(use-package eaf
-  :disabled t
-  :straight t
-  :load-path "~/.cache/emacs/site-lisp/emacs-application-framework"
-  :custom
+  (use-package eaf
+    :disabled t
+    :straight t
+    :load-path "~/.cache/emacs/site-lisp/emacs-application-framework"
+    :custom
 					  ; See https://github.com/emacs-eaf/emacs-application-framework/wiki/Customization
-  (eaf-browser-continue-where-left-off t)
-  (eaf-browser-enable-adblocker t)
-  (browse-url-browser-function 'eaf-open-browser)
-  ;;(eaf-browser-auto-import-chrome-cookies t)
-  :config
-  (defalias 'browse-web #'eaf-open-browser)
-  ;; (eaf-bind-key scroll_up "C-n" eaf-pdf-viewer-keybinding)
-  ;; (eaf-bind-key scroll_down "C-p" eaf-pdf-viewer-keybinding)
-  ;; (eaf-bind-key take_photo "p" eaf-camera-keybinding)
-  ;; (eaf-bind-key nil "M-q" eaf-browser-keybinding)) ;; unbind, see more in the Wiki
-;; (setq eaf-webengine-pc-user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
-(setq eaf-webengine-pc-user-agent "Mozilla/5.0 (X11; Linux i686; rv:109.0) Gecko/20100101 Firefox/118.0")
-  (require 'eaf-browser))
-;;(global-unset-key (kbd "<f1>"))
-;;(define-key eaf-mode-map (kbd "<f1>") #'eaf-send-key)
+    (eaf-browser-continue-where-left-off t)
+    (eaf-browser-enable-adblocker t)
+    (browse-url-browser-function 'eaf-open-browser)
+    ;;(eaf-browser-auto-import-chrome-cookies t)
+    :config
+    (defalias 'browse-web #'eaf-open-browser)
+    ;; (eaf-bind-key scroll_up "C-n" eaf-pdf-viewer-keybinding)
+    ;; (eaf-bind-key scroll_down "C-p" eaf-pdf-viewer-keybinding)
+    ;; (eaf-bind-key take_photo "p" eaf-camera-keybinding)
+    ;; (eaf-bind-key nil "M-q" eaf-browser-keybinding)) ;; unbind, see more in the Wiki
+  ;; (setq eaf-webengine-pc-user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
+  (setq eaf-webengine-pc-user-agent "Mozilla/5.0 (X11; Linux i686; rv:109.0) Gecko/20100101 Firefox/118.0")
+    (require 'eaf-browser))
+  ;;(global-unset-key (kbd "<f1>"))
+  ;;(define-key eaf-mode-map (kbd "<f1>") #'eaf-send-key)
 
 
-;;(require 'eaf-pyqterminal)
-;;(require 'eaf-pdf-viewer)
+  ;;(require 'eaf-pyqterminal)
+  ;;(require 'eaf-pdf-viewer)
 
-(use-package persp-mode
+  (use-package persp-mode
     :straight t
     :defer t
     ;;:hook (persp-mode-hook . my-update-dynamic-persps)
@@ -1548,10 +1556,6 @@ because compile mode is too slow"
 
 (use-package nix-ts-mode
   :straight t
-  :mode "\\.nix\\'"
-  )
-(use-package nix-ts-mode
-  :straight t
  :mode "\\.nix\\'")
 
 (use-package php-ts-mode
@@ -2092,6 +2096,12 @@ because compile mode is too slow"
 
 	  ("W" "Work Tasks" tags-todo "+work-email")
 
+	  ;; Low-effort todo actions
+	  ("l" tags-todo "+TODO=\"TODO\"+Effort<15&+Effort>0"
+	   ((org-agenda-overriding-header "Low Effort Tasks")
+	    (org-agenda-max-todos 20)
+	    (org-agenda-files org-agenda-files)))
+
 	  ;; Low-effort next actions
 	  ("e" tags-todo "+TODO=\"NEXT\"+Effort<15&+Effort>0"
 	   ((org-agenda-overriding-header "Low Effort Tasks")
@@ -2184,6 +2194,12 @@ because compile mode is too slow"
 	  ("w" "Workflows")
 	  ("we" "Checking Email" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
 	   "* Checking Email :email:\n\n%?" :clock-in :clock-resume :empty-lines 1)
+	  ("wt" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	   "* WAIT %?\n  %U\n  %i" :empty-lines 1)
+	  ("wc" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	   "* TODO %?\n  %U\n  %a\n  %i" :empty-lines 1)
+	  ("wc" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	   "* WAIT %?\n  %U\n  %i" :empty-lines 1)
 
 	  ("v" "Activities")
 	  ("va" "Activities idea" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
@@ -2216,14 +2232,14 @@ because compile mode is too slow"
   :straight t
   :hook (org-mode . ox/org-mode-visual-fill))
 
-(use-package org-superstar
-  :straight t
-  :after org
-  :config
-  ;;(setq org-superstar-hide-leading-stars t)
-  (setq org-superstar-leading-bullet " ")
-  ;; Hide away leading stars on terminal.
-  (setq org-superstar-leading-fallback ?\s))
+  (use-package org-superstar
+    :straight t
+    :after org
+    :config
+    ;;(setq org-superstar-hide-leading-stars t)
+    (setq org-superstar-leading-bullet " ")
+    ;; Hide away leading stars on terminal.
+    (setq org-superstar-leading-fallback ?\s))
 
 (use-package org-modern
   :straight t
@@ -2644,7 +2660,7 @@ map)
 ;; (use-package org-web-tools
 ;;   :straight t)
 
-;; This package allow single buffer navigation in Dired
+  ;; This package allow single buffer navigation in Dired
   ;; like (dired-kill-when-opening-new-dired-buffer t) does
   ;; (use-package dired-single
   ;;   :config
@@ -2671,6 +2687,19 @@ map)
   :init
   (dirvish-override-dired-mode)
   :config
+    ;; (require 'dirvish-vc)
+    ;; (require 'vc)
+    ;; (require 'vc-git)
+(setq dirvish-mode-line-format ;; Show git branch in mode line via vc-info
+      '(:left (sort file-time symlink) :right (omit yank index vc-info)))
+    (setopt dirvish-attributes
+      '(file-modes ;; <-- shows rwxr-xr-x style permissions
+        file-size
+           vc-state
+           collapse
+           subtree-state
+           git-msg ;;<-- Shows commit messages
+           ))
     (defun my/faster-dirvish-previews ()
     "Disable intensive mode in file manager buffers."
     (when (or (derived-mode-p 'dired-mode)
@@ -3102,6 +3131,7 @@ map)
   :straight t
   :after general
   :config
+    (setq gptel-default-mode #'org-mode)
   (ox/leader-keys
     "g" '(:ignore t :which-key "gptel")
     "gm" '(gptel-menu :which-key "Open gptel-menu")
@@ -3127,6 +3157,14 @@ map)
 	  (funcall (plist-get (car auth-info) :secret))
 	(error "OpenAI API key not found in .authinfo"))))
 
+  (defun my-openrouter-api-key ()
+    (let ((auth-info (auth-source-search
+		      :host "api.openrouter.ai"
+		      :user "apikey"
+		      :require '(:secret))))
+      (if auth-info
+	  (funcall (plist-get (car auth-info) :secret))
+	(error "OpenRouter API key not found in .authinfo"))))
   ;; (defun my-mistral-api-key ()
   ;;   (let ((auth-info (auth-source-search
   ;; 		      :host "api.mistral.ai"
@@ -3153,6 +3191,15 @@ map)
 	    :stream t
 	    :key #'my-groq-api-key                   ;can be a function that returns the key
 	    :models '(openai/gpt-oss-120b llama-3.3-70b-versatile))))
+  (defun my-groq-setup ()
+    (setq gptel-model   'llama-3.3-70b-versatile
+	  gptel-backend
+	  (gptel-make-openai "OpenRouter"               ;Any name you want
+	    :host "openrouter.ai"
+	    :endpoint "/api/v1/chat/completions"
+	    :stream t
+	    :key #'my-openrouter-api-key                   ;can be a function that returns the key
+	    :models '(deepseek/deepseek-chat-v3.1:free deepseek/deepseek-r1-0528:free))))
   (my-groq-setup))
 
 (add-to-list 'load-path "~/git_builds/gptel-tool-library")
@@ -3185,7 +3232,7 @@ map)
   :init
   (global-sops-mode 1))
 
-(use-package reader
+  (use-package reader
     :disabled t
     :straight '(reader :type git :host codeberg :repo "divyaranjan/emacs-reader"
   	      :files ("*.el" "render-core.dylib")
