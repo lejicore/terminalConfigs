@@ -1,3 +1,4 @@
+require("types.globals")
 vim.g.maplocalleader = " "
 vim.g.mapleader = " "
 
