@@ -1,16 +1,18 @@
-function git_commit()
-  local message = vim.fn.input('Enter commit message: ')
-  os.execute("git commit -m '" .. message .. "'")
+local M = {}
+
+function M.commit()
+  local message = vim.fn.input("Enter commit message: ")
+  if message == nil or message == "" then
+    return
+  end
+  vim.fn.system({ "git", "commit", "-m", message })
 end
 
--- git add buffer / add to staging area
-vim.api.nvim_set_keymap('n', '<leader>ga', [[!git add %<CR>]], { noremap = true })
+vim.keymap.set("n", "<leader>ga", "<cmd>!git add %<CR>", { noremap = true, desc = "git add buffer" })
+vim.keymap.set("n", "<leader>gr", "<cmd>!git reset %<CR>", { noremap = true, desc = "git reset buffer" })
+vim.keymap.set("n", "<leader>gc", function()
+  M.commit()
+end, { noremap = true, desc = "git commit" })
+vim.keymap.set("n", "<leader>gp", "<cmd>!git push<CR>", { noremap = true, desc = "git push" })
 
--- git reset buffer / lossless unstage
-vim.api.nvim_set_keymap('n', '<leader>gr', [[!git reset %<CR>]], { noremap = true })
-
--- git commit
-vim.api.nvim_set_keymap('n', '<leader>gc', [[<Cmd>lua git_commit()<CR>]], { noremap = true })
-
--- git push
-vim.api.nvim_set_keymap('n', '<leader>gp', [[!git push<CR>]], { noremap = true })
+return M
