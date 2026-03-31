@@ -2523,7 +2523,10 @@ because compile mode is too slow"
 
 	  ("m" "Metrics Capture")
 	  ("mw" "Weight" table-line (file+headline ,(expand-file-name "org-files/Metrics.org" my-org-directory) "Weight")
-	   "| %U | %^{Weight} | %^{Notes} |" :kill-buffer t)))
+	   "| %U | %^{Weight} | %^{Notes} |" :kill-buffer t)
+	  ("ma" "Aim training" table-line (file+headline ,(expand-file-name "org-files/Metrics.org" my-org-directory) "Aim training")
+	   "| %U | %^{Game} | %^{Benchmark} | %^{Scenario} | %^{Best session score} | %^{Actual PB} | %^{Notes} |\n|-" :kill-buffer t)
+             ))
 
   (define-key global-map (kbd "C-c j")
 	      (lambda () (interactive) (org-capture nil "jj")))
