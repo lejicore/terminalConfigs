@@ -2246,14 +2246,24 @@ because compile mode is too slow"
 
 
 #+end_src
+* Mixed pitch
+#+begin_src emacs-lisp
+(use-package mixed-pitch
+  :straight t)
+(use-package valign
+  :straight t)
+#+end_src
 * Org mode
 ** Org configuration
 #+begin_src emacs-lisp
 (defun ox/org-mode-setup ()
+(setq org-adapt-indentation t)
+;;(set-face-attribute 'org-indent nil :inherit '(org-hide fixed-pitch))
   (org-indent-mode)
-  (variable-pitch-mode 1)
+  (mixed-pitch-mode 1)
+    ;;(valign-mode 1)
   (visual-line-mode 1))
-
+;;(set-face-attribute 'org-date nil :inherit 'fixed-pitch)
 
 (defun ox/after-org-capture (&rest r)
   (delete-other-windows))
