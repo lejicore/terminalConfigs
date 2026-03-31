@@ -137,8 +137,6 @@ return {
         lsp_keymaps(bufnr)
       end
 
-      -- require("neodev").setup({
-      -- })
       --vim.keymap.set('n', '<cmd>:Format<cr>', {buffer = bufnr, desc='LSP: [F]ormat whole buffer' })
       -- nvim-cmp supports additional completion capabilities
       local capabilities = require('cmp_nvim_lsp').default_capabilities(vim.lsp.protocol.make_client_capabilities())
