@@ -35,10 +35,10 @@ with pkgs;
   sops
   age
   # openssh
-  nodePackages.prettier
-  emacsLejiWithPackages
+  nodePackages.prettierpackage
+  # emacsLejiWithPackages
+  # emacsPackages.cask
   jansson
-  emacsPackages.cask
   telegram-desktop
   gawk
   #floorp
