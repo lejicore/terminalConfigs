@@ -152,26 +152,33 @@ return {
         ensure_installed = servers,
       }
 
-      for _, lsp in ipairs(servers) do
-        require('lspconfig')[lsp].setup {
-          on_attach = on_attach,
-          capabilities = capabilities,
-        }
-      end
+      -- for _, lsp in ipairs(servers) do
+      --   --require('lspconfig')[lsp].setup {
+      --   vim.lsp.config[lsp] {
+      --     on_attach = on_attach,
+      --     capabilities = capabilities,
+      --   }
+      -- end
+      vim.lsp.config("*", {
+        on_attach=on_attach,
+        capabilities = capabilities,
+        })
 
       require("clangd_extensions").setup()
-      require'lspconfig'.emmet_ls.setup({
+      --require'lspconfig'.emmet_ls.setup({
+      vim.lsp.config["emmet_ls"] = {
         on_attach = on_attach,
         capabilities = capabilities,
         filetypes = { "html", "php", "typescriptreact", "javascriptreact", "css", "sass", "scss", "less", "typescript"},
-      })
+      }
 
       -- require'lspconfig'.cssls.setup{
       --   on_attach = on_attach,
       --   capabilities = capabilities,
       -- }
 
-      require'lspconfig'.lua_ls.setup {
+      --require'lspconfig'.lua_ls.setup {
+      vim.lsp.config['lua_ls'] = {
         settings = {
           Lua = {
             runtime = {
