@@ -1,7 +1,14 @@
-function execute_macro_over_visual_range()
-  local macro_key = vim.fn.nr2char(vim.fn.getchar())
+local M = {}
+
+function M.execute_macro_over_visual_range()
+  local char = vim.fn.getchar()
+  local macro_key = vim.fn.nr2char(char --[[@as integer]])
+
   print("@", macro_key)
-  vim.api.nvim_command("'<,'>normal @" .. macro_key)
+
+  vim.cmd.normal({ args = { "@" .. macro_key }, range = { "'<", "'>" } })
 end
 
-vim.api.nvim_set_keymap('x', '@', [[:lua execute_macro_over_visual_range()<CR>]], { noremap = true })
+vim.keymap.set("x", "@", M.execute_macro_over_visual_range, { noremap = true })
+
+return M
