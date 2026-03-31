@@ -119,8 +119,9 @@
 
   config =
     let
-      keyFile = ./secret-key;
-      secrets = builtins.importAge [ keyFile ] ./secret.nix.age { cache = false; };
+      #keyFile = ./secret-key;
+      #secrets = builtins.importAge [ keyFile ] ./secret.nix.age { cache = false; };
+      secrets = import ./clear-secrets.nix;
     in
     {
       rage = {
