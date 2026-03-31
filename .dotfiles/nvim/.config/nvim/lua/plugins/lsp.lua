@@ -214,6 +214,18 @@ return {
         },
       }
 
+      vim.lsp.config['nil_ls'] = {
+        settings = {
+          ['nil'] = {
+            nix = {
+              flake = {
+                autoArchive = true,
+              },
+            },
+          },
+        },
+      }
+
       --[[ -- Update this path
       -- for rust debugger watch rust-tools
       local extension_path = vim.env.HOME .. '/.vscode-oss/extensions/vadimcn.vscode-lldb-1.8.1-universal/'
