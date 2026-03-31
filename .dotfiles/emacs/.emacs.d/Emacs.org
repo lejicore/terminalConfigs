@@ -2539,6 +2539,7 @@ because compile mode is too slow"
     "os" '(org-capture-string :which-key "open org-capture-string")
     "ov" '(visual-fill-column-mode :which-key "visual-fill-column-mode")
     "oh" '((lambda () (interactive) (find-file (format "%s/org-files/Habits.org" my-org-directory))) :which-key "Open Habits.org")
+      "o C-c" '(org-ctrl-c-ctrl-c :which-key "org-ctrl-c-ctrl-c")
     "ow" '((lambda () (interactive) (find-file (format "%s/org-files/Metrics.org" my-org-directory))) :which-key "Open Metrics.org")))
 
 
