@@ -32,6 +32,15 @@ return {
       'nvim-tree/nvim-web-devicons',     -- optional
     }
   },
+    "folke/lazydev.nvim",
+  ft = "lua", -- only load on lua files
+  opts = {
+    library = {
+      -- See the configuration section for more details
+      -- Load luvit types when the `vim.uv` word is found
+      { path = "${3rd}/luv/library", words = { "vim%.uv" } },
+    },
+  },
   "mrcjkb/rustaceanvim",
   {'neovim/nvim-lspconfig',
     dependencies = {
@@ -128,8 +137,8 @@ return {
         lsp_keymaps(bufnr)
       end
 
-      require("neodev").setup({
-      })
+      -- require("neodev").setup({
+      -- })
       --vim.keymap.set('n', '<cmd>:Format<cr>', {buffer = bufnr, desc='LSP: [F]ormat whole buffer' })
       -- nvim-cmp supports additional completion capabilities
       local capabilities = require('cmp_nvim_lsp').default_capabilities(vim.lsp.protocol.make_client_capabilities())

@@ -1,3 +1,3 @@
 return {
-  "folke/neodev.nvim", config = true,
+  "folke/neodev.nvim", config = false,
 }
