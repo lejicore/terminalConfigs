@@ -1310,6 +1310,18 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
     :defer 0
     :after (general which-key)
     :config
+    ;; Make C-h deleting correctly backward
+    ;; Without it either start help in Emacs mode
+    ;; Or erroring for buffer in read-only in Evil mode
+    (define-key vterm-mode-map (kbd "C-h") #'vterm-send-backspace)
+    (define-key vterm-mode-map (kbd "DEL") #'vterm-send-backspace)
+    (with-eval-after-load 'evil
+        ;; Important: bind in Evil's insert state for vterm
+        (evil-define-key '(insert) vterm-mode-map
+        (kbd "C-h") #'vterm-send-backspace
+        (kbd "<backspace>") #'vterm-send-backspace
+        (kbd "DEL") #'vterm-send-backspace)))
+
     ;; Remove mappings of alt+numbers from vterm
     (dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
         (define-key vterm-mode-map (kbd key) nil))
