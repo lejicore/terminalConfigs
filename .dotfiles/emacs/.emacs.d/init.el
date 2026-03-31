@@ -1089,6 +1089,18 @@ folder, otherwise delete a word"
     :defer 0
     :after (general which-key)
     :config
+    ;; Make C-h deleting correctly backward
+    ;; Without it either start help in Emacs mode
+    ;; Or erroring for buffer in read-only in Evil mode
+    (define-key vterm-mode-map (kbd "C-h") #'vterm-send-backspace)
+    (define-key vterm-mode-map (kbd "DEL") #'vterm-send-backspace)
+    (with-eval-after-load 'evil
+        ;; Important: bind in Evil's insert state for vterm
+        (evil-define-key '(insert) vterm-mode-map
+        (kbd "C-h") #'vterm-send-backspace
+        (kbd "<backspace>") #'vterm-send-backspace
+        (kbd "DEL") #'vterm-send-backspace)))
+
     ;; Remove mappings of alt+numbers from vterm
     (dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
         (define-key vterm-mode-map (kbd key) nil))
@@ -1943,11 +1955,19 @@ because compile mode is too slow"
 
 ;; (add-hook 'comint-output-filter-functions 'my/vc-refresh-state-after-shell-command)
 
-(defun ox/org-mode-setup ()
-  (org-indent-mode)
-  (variable-pitch-mode 1)
-  (visual-line-mode 1))
+(use-package mixed-pitch
+  :straight t)
+(use-package valign
+  :straight t)
 
+(defun ox/org-mode-setup ()
+(setq org-adapt-indentation t)
+;;(set-face-attribute 'org-indent nil :inherit '(org-hide fixed-pitch))
+  (org-indent-mode)
+  (mixed-pitch-mode 1)
+    ;;(valign-mode 1)
+  (visual-line-mode 1))
+;;(set-face-attribute 'org-date nil :inherit 'fixed-pitch)
 
 (defun ox/after-org-capture (&rest r)
   (delete-other-windows))
@@ -2207,7 +2227,10 @@ because compile mode is too slow"
 
 	  ("m" "Metrics Capture")
 	  ("mw" "Weight" table-line (file+headline ,(expand-file-name "org-files/Metrics.org" my-org-directory) "Weight")
-	   "| %U | %^{Weight} | %^{Notes} |" :kill-buffer t)))
+	   "| %U | %^{Weight} | %^{Notes} |" :kill-buffer t)
+	  ("ma" "Aim training" table-line (file+headline ,(expand-file-name "org-files/Metrics.org" my-org-directory) "Aim training")
+	   "| %U | %^{Game} | %^{Benchmark} | %^{Scenario} | %^{Best session score} | %^{Actual PB} | %^{Notes} |\n|-" :kill-buffer t)
+             ))
 
   (define-key global-map (kbd "C-c j")
 	      (lambda () (interactive) (org-capture nil "jj")))
@@ -2218,7 +2241,9 @@ because compile mode is too slow"
     "oc" '(org-capture :which-key "open org-capture")
     "oi" '(org-id-get-create :which-key "crate an ID for the current entry")
     "os" '(org-capture-string :which-key "open org-capture-string")
+    "ov" '(visual-fill-column-mode :which-key "visual-fill-column-mode")
     "oh" '((lambda () (interactive) (find-file (format "%s/org-files/Habits.org" my-org-directory))) :which-key "Open Habits.org")
+      "o C-c" '(org-ctrl-c-ctrl-c :which-key "org-ctrl-c-ctrl-c")
     "ow" '((lambda () (interactive) (find-file (format "%s/org-files/Metrics.org" my-org-directory))) :which-key "Open Metrics.org")))
 
 
