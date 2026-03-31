@@ -7,9 +7,16 @@ return {
     'nvim-treesitter/nvim-tree-docs'
   },
   config = function()
+    local parser_install_dir = vim.fn.stdpath("data") .. "/treesitter-parsers"
+    -- keep compiled parsers in a persistent location so lazy.nvim updates don't trigger reinstalls
+    if not string.find(vim.o.runtimepath, parser_install_dir, 1, true) then
+      vim.opt.runtimepath:append(parser_install_dir)
+    end
+
     require('nvim-treesitter.configs').setup {
       -- Add languages to be installed here that you want installed for treesitter
       ensure_installed = { 'c', 'cpp', 'go', 'lua', 'python', 'rust', 'typescript', 'php', 'html', 'css', 'javascript', 'latex', 'bash', 'regex', 'markdown', 'markdown_inline', 'java', 'vim', 'vimdoc', 'angular', 'norg'},
+      parser_install_dir = parser_install_dir,
       tree_docs = {enable = true},
       auto_install = true,
       highlight = { enable = true },
