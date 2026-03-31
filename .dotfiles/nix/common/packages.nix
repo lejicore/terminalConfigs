@@ -3,6 +3,7 @@ with pkgs;
 [
   home-manager
   #ranger
+  tree-sitter
   neovim
   yazi
   tmux
