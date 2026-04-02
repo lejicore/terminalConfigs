@@ -283,9 +283,12 @@ We use the no-littering package to keep folders where we edit files and the Emac
 	 (add-to-list 'default-frame-alist '(drag-internal-border . 1)) ;;Help to drag window when no title bar
 	 (add-to-list 'default-frame-alist '(internal-border-width . 9)) ;; helpful to see full letters at bottom
 	 (add-to-list 'default-frame-alist '(undecorated . t))))) ;; Remove title bar, and every decorations
-
+;; All:
+(set-frame-parameter nil 'ns-alpha-elements '(ns-alpha-all))
 (set-frame-parameter nil 'alpha-background my-opacity) ; For current frame
+(set-frame-parameter nil 'ns-background-blur 20) ; For current frame
 (add-to-list 'default-frame-alist `(alpha-background . ,my-opacity)) ; For all new frames henceforth
+;;(add-to-list 'default-frame-alist `(ns-alpha-elements . (ns-alpha-all)) ; For all new frames henceforth
 #+end_src
 
 * Ligatures
