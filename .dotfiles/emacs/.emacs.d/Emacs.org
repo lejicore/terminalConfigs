@@ -1832,6 +1832,10 @@ because compile mode is too slow"
 
 ;;(add-hook 'after-save-hook 'my/crunner)
 
+
+(use-package text-mode ;;
+    :mode (".tridactylrc"))  ;;
+
 (use-package eros
   :straight t
   :init
