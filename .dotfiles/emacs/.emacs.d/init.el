@@ -138,13 +138,27 @@
     :straight t
     :config
     ;; Global settings (defaults)
-    (setq doom-themes-enable-bold t    ; if nil, bold is universally disabled
+      (setq doom-themes-enable-bold t    ; if nil, bold is universally disabled
 	  doom-themes-enable-italic t) ; if nil, italics is universally disabled
     ;;(load-theme 'doom-challenger-deep t)
     ;;(load-theme 'doom-moonlight t)
     (load-theme 'doom-outrun-electric t)
     (set-face-attribute 'line-number nil :foreground "purple")
-
+(defun ox/gnus-face-cycle-present-p ()
+  (condition-case nil
+      (progn
+        (face-attribute 'gnus-group-news-low :inherit)
+        nil)
+    (error t)))
+      (when (ox/gnus-face-cycle-present-p)
+;; Break stale/custom Gnus face inheritance loops which can surface when
+    ;; completion UIs ask Emacs to resolve annotated text properties.
+    (custom-theme-set-faces
+     'user
+     '(gnus-group-mail-1 ((t (:inherit default :weight bold))))
+     '(gnus-group-mail-low ((t (:inherit default :weight normal))))
+     '(gnus-group-news-low ((t (:inherit default :weight normal))))
+     '(gnus-group-news-low-empty ((t (:inherit default :weight normal))))))
 
     ;; Enable flashing mode-line on errors
     (doom-themes-visual-bell-config)
@@ -155,6 +169,19 @@
     (doom-themes-treemacs-config)
     ;; Corrects (and improves) org-mode's native fontification.
     (doom-themes-org-config))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; (defun ox/fix-doom-gnus-face-cycle ()                             ;;
+;;   "Break problematic Gnus face inheritance cycles (doom-themes)." ;;
+;;   (dolist (face '(gnus-group-news-low                             ;;
+;;                   gnus-group-news-low-empty                       ;;
+;;                   gnus-group-news-1-empty                         ;;
+;;                   gnus-group-news-1                               ;;
+;;                   gnus-group-mail-1))                             ;;
+;;     (when (facep face)                                            ;;
+;;       (set-face-attribute face nil :inherit nil))))               ;;
+;;                                                                   ;;
+;; (add-hook 'after-load-theme-hook #'ox/fix-doom-gnus-face-cycle)   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (use-package doom-modeline
   :straight t
@@ -227,9 +254,12 @@
 	 (add-to-list 'default-frame-alist '(drag-internal-border . 1)) ;;Help to drag window when no title bar
 	 (add-to-list 'default-frame-alist '(internal-border-width . 9)) ;; helpful to see full letters at bottom
 	 (add-to-list 'default-frame-alist '(undecorated . t))))) ;; Remove title bar, and every decorations
-
+;; All:
+(set-frame-parameter nil 'ns-alpha-elements '(ns-alpha-all))
 (set-frame-parameter nil 'alpha-background my-opacity) ; For current frame
+(set-frame-parameter nil 'ns-background-blur 20) ; For current frame
 (add-to-list 'default-frame-alist `(alpha-background . ,my-opacity)) ; For all new frames henceforth
+;;(add-to-list 'default-frame-alist `(ns-alpha-elements . (ns-alpha-all)) ; For all new frames henceforth
 
 (use-package ligature
 :straight t
@@ -1099,7 +1129,7 @@ folder, otherwise delete a word"
         (evil-define-key '(insert) vterm-mode-map
         (kbd "C-h") #'vterm-send-backspace
         (kbd "<backspace>") #'vterm-send-backspace
-        (kbd "DEL") #'vterm-send-backspace)))
+        (kbd "DEL") #'vterm-send-backspace))
 
     ;; Remove mappings of alt+numbers from vterm
     (dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
@@ -1269,44 +1299,46 @@ folder, otherwise delete a word"
 ;;   (dolist (state '(normal visual insert))
 ;;     (evil-define-key state global-map (kbd "C-6") #'my/switch-to-persp-last-non-vterm-buffer)))
 
-(global-unset-key (kbd "C-\\"))
-(define-key global-map (kbd "C-|") #'toggle-input-method)
+  (global-unset-key (kbd "C-\\"))
+  (define-key global-map (kbd "C-|") #'toggle-input-method)
 
-(defun my-switch-to-persp-vterm-by-number (number)
-  "Target a vterm buffer in persp by NUMBER."
-  (interactive "nPress the number key for the persp-vterm: ")
-    (my/get-persp-non-vterm-current-buffer)
-  (let* ((index 0)
-	 (number (1- number))
-	 (all-buffers-in-persp (reverse (persp-buffer-list-restricted)))
-	 (persp-vterm-buffers (cl-remove-if-not (lambda (buf) (string-match-p "^\\*vterminal<[0-9]+>\\*$" (buffer-name buf))) all-buffers-in-persp)))
-    (if persp-vterm-buffers
-	(if (get-current-persp)
-	    (progn
-	      (while (< index number)
-		(setq index (+ 1 index)))
-	      (if (setq vterm-persp-p (elt persp-vterm-buffers index))
-		  (switch-to-buffer vterm-persp-p)))
-	  (switch-to-buffer (format "*vterminal<%d>*" (1+ number))))
-      (message "No vterm buffer in the perspective")
-      )
-    ))
+  (defun my-switch-to-persp-vterm-by-number (number)
+    "Target a vterm buffer in persp by NUMBER."
+    (interactive "nPress the number key for the persp-vterm: ")
+      (my/get-persp-non-vterm-current-buffer)
+    (let* ((index 0)
+  	 (number (1- number))
+  	 (all-buffers-in-persp (reverse (persp-buffer-list-restricted)))
+  	 (persp-vterm-buffers (cl-remove-if-not (lambda (buf) (string-match-p "^\\*vterminal<[0-9]+>\\*$" (buffer-name buf))) all-buffers-in-persp)))
+      (if persp-vterm-buffers
+  	(if (get-current-persp)
+  	    (progn
+  	      (while (< index number)
+  		(setq index (+ 1 index)))
+  	      (if (setq vterm-persp-p (elt persp-vterm-buffers index))
+  		  (switch-to-buffer vterm-persp-p)))
+  	  (switch-to-buffer (format "*vterminal<%d>*" (1+ number))))
+        (message "No vterm buffer in the perspective")
+        )
+      ))
+  ;;(dolist modes-to-load-before-adding-keys-to-vterm-mode-map '(evil vterm))
+  ;;(with-eval-after-load modes-to-load-before-adding-keys-to-vterm-mode-map
+  (with-eval-after-load 'evil
+    (with-eval-after-load 'vterm
+      (keymap-global-set "C-\\ l" #'my/switch-to-persp-last-non-vterm-buffer)
 
-(with-eval-after-load 'evil
-    (keymap-global-set "C-\\ l" #'my/switch-to-persp-last-non-vterm-buffer)
-
-(let ((i 1))
-(while (< i 10)  ;; Loop from 0 to 9
-  (let* ((current-i i)
-	 (key (format "C-\\ %d" i))
-	 (command-name (intern (format "my-persp-vterm-%d" i))))
-     (defalias command-name
-       (lambda()
-		       (interactive)
-		       (my-switch-to-persp-vterm-by-number current-i)))
-     (keymap-global-set key command-name)
-      (evil-define-key '(visual insert normal) vterm-mode-map (kbd key) command-name))
-  (setq i (+ i 1)))))
+  (let ((i 1))
+  (while (< i 10)  ;; Loop from 0 to 9
+    (let* ((current-i i)
+  	 (key (format "C-\\ %d" i))
+  	 (command-name (intern (format "my-persp-vterm-%d" i))))
+       (defalias command-name
+         (lambda()
+  		       (interactive)
+  		       (my-switch-to-persp-vterm-by-number current-i)))
+       (keymap-global-set key command-name)
+        (evil-define-key '(visual insert normal) vterm-mode-map (kbd key) command-name))
+    (setq i (+ i 1))))))
 
 ;; Dependencies for evil mode undo features
 ;; (use-package undo-tree
@@ -1547,6 +1579,10 @@ because compile mode is too slow"
   "cv" '(my/crunner :which-key "Run C code in VTerm"))
 
 ;;(add-hook 'after-save-hook 'my/crunner)
+
+
+(use-package text-mode ;;
+    :mode (".tridactylrc"))  ;;
 
 (use-package eros
   :straight t
@@ -2624,7 +2660,7 @@ map)
   ;;				      list list_comprehension
   ;;				      dictionary dictionary_comprehension
   ;;				      parenthesized_expression subscript)))
-  :hook ((python-base-mode yaml-mode c-ts-mode makefile-gmake-mode) . indent-bars-mode))
+  :hook ((python-base-mode yaml-mode c-ts-mode c++-ts-mode makefile-gmake-mode js-ts-mode) . indent-bars-mode))
 
 (use-package aggressive-indent
   :straight nil
@@ -2976,7 +3012,7 @@ map)
 (ox/leader-keys
     "w" '(:ignore t :which-key "ace")
     "ww" '(ace-window :which-key "ace-window")
-    "ws" '(ace-swap :which-key "ace-swap")
+    "ws" '(ace-swap-window :which-key "ace-swap")
     "wd" '(ace-delete-window :which-key "ace-delete-window")
     "wo" '(ace-delete-other-windows : which-key "ace-delete-other-windows"))
 
