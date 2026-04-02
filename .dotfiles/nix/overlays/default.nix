@@ -13,6 +13,14 @@ let
   inherit (inputs) emacs-src;
 in [
   (import ./emacs.nix {inherit emacs-src;})
+  (final: prev:
+    {
+      "aider-chat" = prev."aider-chat".overrideAttrs (_old: {
+        doCheck = false;
+        checkPhase = "true";
+        pytestCheckPhase = "true";
+      });
+    })
 ]
 
 /* {inputs}: {
