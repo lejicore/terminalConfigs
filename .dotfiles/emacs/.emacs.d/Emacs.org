@@ -3011,10 +3011,14 @@ so use-package can load it. By using straight it does not work. Waiting for this
     (indent-bars-highlight-current-depth '(:blend 0.8 :pattern "."))
   (indent-bars-treesit-ignore-blank-lines-types '("module"))
   ;; Add other languages as needed
-    (indent-bars-treesit-scope '((python function_definition class_definition for_statement
-	                           if_statement with_statement while_statement try_statement match_statement)))
+    ;;(indent-bars-treesit-scope '((python function_definition class_definition for_statement
+	                           ;;if_statement with_statement while_statement try_statement match_statement)))
     (indent-bars-treesit-wrap
-        '((c argument_list parameter_list init_declarator parenthesized_expression)))
+        '((c argument_list parameter_list init_declarator parenthesized_expression)
+             (python argument_list parameters
+				      list list_comprehension
+				      dictionary dictionary_comprehension
+				      parenthesized_expression subscript)))
   ;; wrap may not be needed if no-descend-list is enough
   ;;(indent-bars-treesit-wrap '((python argument_list parameters ; for python, as an example
   ;;				      list list_comprehension
