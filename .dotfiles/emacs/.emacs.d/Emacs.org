@@ -3001,7 +3001,7 @@ so use-package can load it. By using straight it does not work. Waiting for this
   ;;				      list list_comprehension
   ;;				      dictionary dictionary_comprehension
   ;;				      parenthesized_expression subscript)))
-  :hook ((python-base-mode yaml-mode c-ts-mode makefile-gmake-mode) . indent-bars-mode))
+  :hook ((python-base-mode yaml-mode c-ts-mode c++-ts-mode makefile-gmake-mode js-ts-mode) . indent-bars-mode))
 
 (use-package aggressive-indent
   :straight nil
