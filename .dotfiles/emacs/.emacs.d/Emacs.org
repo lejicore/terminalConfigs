@@ -205,7 +205,21 @@ We use the no-littering package to keep folders where we edit files and the Emac
     (doom-themes-treemacs-config)
     ;; Corrects (and improves) org-mode's native fontification.
     (doom-themes-org-config))
-#+end_src
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; (defun ox/fix-doom-gnus-face-cycle ()                             ;;
+;;   "Break problematic Gnus face inheritance cycles (doom-themes)." ;;
+;;   (dolist (face '(gnus-group-news-low                             ;;
+;;                   gnus-group-news-low-empty                       ;;
+;;                   gnus-group-news-1-empty                         ;;
+;;                   gnus-group-news-1                               ;;
+;;                   gnus-group-mail-1))                             ;;
+;;     (when (facep face)                                            ;;
+;;       (set-face-attribute face nil :inherit nil))))               ;;
+;;                                                                   ;;
+;; (add-hook 'after-load-theme-hook #'ox/fix-doom-gnus-face-cycle)   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+#+End_src
 
 ** Modeline themes
 #+begin_src emacs-lisp
