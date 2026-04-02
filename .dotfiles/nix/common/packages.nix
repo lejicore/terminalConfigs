@@ -36,8 +36,8 @@ with pkgs;
   age
   # openssh
   nodePackages.prettierpackage
-  # emacsLejiWithPackages
-  # emacsPackages.cask
+  emacsLejiWithPackages
+  emacsPackages.cask
   jansson
   telegram-desktop
   gawk
