@@ -68,8 +68,8 @@ in
     pkgs.nerd-fonts.caskaydia-cove
     pkgs.nerd-fonts.symbols-only
     pkgs.noto-fonts # base Noto; good to have
-    pkgs.noto-fonts-emoji # color emoji coverage
-    pkgs.noto-fonts-extra # includes Symbols2 on most channels
+    pkgs.noto-fonts-color-emoji # color emoji coverage
+    #pkgs.noto-fonts-extra # includes Symbols2 on most channels
   ];
 
   homebrew = {
