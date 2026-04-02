@@ -3388,7 +3388,7 @@ We are using consult-dash as an ui-front end to parse dash-docs
 (ox/leader-keys
     "w" '(:ignore t :which-key "ace")
     "ww" '(ace-window :which-key "ace-window")
-    "ws" '(ace-swap :which-key "ace-swap")
+    "ws" '(ace-swap-window :which-key "ace-swap")
     "wd" '(ace-delete-window :which-key "ace-delete-window")
     "wo" '(ace-delete-other-windows : which-key "ace-delete-other-windows"))
 #+end_src
