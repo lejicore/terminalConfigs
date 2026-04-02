@@ -38,7 +38,11 @@
       #url    = "git+https://git.savannah.gnu.org/git/emacs.git?rev=dd5ae0f3ba56e762ae1265b0cb0fe9f2a28281ec";
       #url = "github:emacs-mirror/emacs?rev=dd5ae0f3ba56e762ae1265b0cb0fe9f2a28281ec"; # <- 30 April 2025
       #url = "github:emacs-mirror/emacs?rev=d3d93bc3825e7ee4319330f81c59ae249eba2e25"; # <- 23 August 2025
-      url = "github:emacs-mirror/emacs?rev=680ef7b5f0bdc1c215a66e165851a07177db7ed0"; # <- 21 August 2025
+      #url = "github:emacs-mirror/emacs?rev=680ef7b5f0bdc1c215a66e165851a07177db7ed0"; # <- 21 August 2025
+      url = "github:emacs-mirror/emacs?rev=7059bb160e63e45d41066422aadaacc7fd53889e"; # <- 03 March 2026 acutally working
+      #url = "github:emacs-mirror/emacs?rev=7fae44485703a07127946e1ee26ad2a3d618733a"; # <- 18 August 2026
+      #url = "github:emacs-mirror/emacs?rev=c96c89faaa02a2ff76ec30146ba466aece622603"; # <- 22 March 2026
+      #url = "github:emacs-mirror/emacs?rev=4baa427ee45c1dbb07e9af03328d48a8268c2832"; # <- 01 April 2026
 
       flake = false; # it is *not* a flake
     };
