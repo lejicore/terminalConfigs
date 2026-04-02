@@ -3005,11 +3005,16 @@ so use-package can load it. By using straight it does not work. Waiting for this
 (use-package indent-bars
   :straight (indent-bars :type git :host github :repo "jdtsmith/indent-bars")
   :custom
+    (indent-bars-starting-column 0) ; set to nil for default behavior, 0 will create all the bars
   (indent-bars-treesit-support t)
+    (indent-bars-display-on-blank-lines t)
+    (indent-bars-highlight-current-depth '(:blend 0.8 :pattern "."))
   (indent-bars-treesit-ignore-blank-lines-types '("module"))
   ;; Add other languages as needed
-  (indent-bars-treesit-scope '((python function_definition class_definition for_statement
-	  if_statement with_statement while_statement)))
+    (indent-bars-treesit-scope '((python function_definition class_definition for_statement
+	                           if_statement with_statement while_statement try_statement match_statement)))
+    (indent-bars-treesit-wrap
+        '((c argument_list parameter_list init_declarator parenthesized_expression)))
   ;; wrap may not be needed if no-descend-list is enough
   ;;(indent-bars-treesit-wrap '((python argument_list parameters ; for python, as an example
   ;;				      list list_comprehension
