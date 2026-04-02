@@ -32,6 +32,7 @@ in
     ];
 
     settings.experimental-features = "nix-command flakes";
+    settings.download-buffer-size = 67108864;
     optimise.automatic = true;
 
     #automatically gargage collect to reduce nix store size
