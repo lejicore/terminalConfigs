@@ -20,6 +20,11 @@ in [
         checkPhase = "true";
         pytestCheckPhase = "true";
       });
+      "yt-dlp" = prev."yt-dlp".override {
+        # nixpkgs yt-dlp enables JS extraction via deno by default.
+        # Disable that feature to avoid the current deno/rustc ICE on darwin.
+        javascriptSupport = false;
+      };
     })
 ]
 
