@@ -52,7 +52,7 @@ with pkgs;
   typescript
   nodemon
   nixd # nix lsp server
-  nixfmt-rfc-style # nix formatter
+  nixfmt # nix formatter
   #direnv
   # emacsPackages.treesit-grammars.with-all-grammars
 
