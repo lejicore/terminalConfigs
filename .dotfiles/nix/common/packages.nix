@@ -1,10 +1,23 @@
 { pkgs }:
 with pkgs;
+let
+  nvimWithMagick = symlinkJoin {
+    name = "nvim-with-magick";
+    paths = [ neovim ];
+    nativeBuildInputs = [ makeWrapper ];
+    postBuild = ''
+      wrapProgram $out/bin/nvim \
+        --prefix LUA_PATH ';' "${luajitPackages.magick}/share/lua/5.1/?.lua;${luajitPackages.magick}/share/lua/5.1/?/init.lua;;" \
+        --prefix LUA_CPATH ';' "${luajitPackages.magick}/lib/lua/5.1/?.so;;" \
+        --prefix DYLD_FALLBACK_LIBRARY_PATH ':' "${imagemagick}/lib"
+    '';
+  };
+in
 [
   home-manager
   #ranger
   tree-sitter
-  neovim
+  nvimWithMagick
   yazi
   tmux
   fzf

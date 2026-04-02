@@ -18,15 +18,20 @@
   home.sessionPath = [
     "$HOME/bin"
   ];
+  # Keep Neovim unmanaged by Home Manager so ~/.config/nvim/init.lua stays user-owned.
+  # Neovim itself is installed from package lists in this repo.
   programs.neovim = {
-    enable = true;
+    enable = false;
     extraLuaPackages = ps: [ ps.magick ];
     extraPackages = [ pkgs.imagemagick ];
   };
   programs.home-manager.enable = true;
   programs.zsh.enable = false;
 
-  home.packages = with pkgs; [ ueberzugpp ];
+  home.packages = with pkgs; [
+    ueberzugpp
+    imagemagick #comment out if managing neovim with home manager instead of installing from package list
+  ];
 
   programs.ranger = {
     enable = true;
