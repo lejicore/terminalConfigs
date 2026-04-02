@@ -60,22 +60,30 @@ rec {
             })
           */
           # Same but for Emacs 31
+          # (prev.fetchpatch {
+          #   url = "https://raw.githubusercontent.com/bbenchen/homebrew-emacs-plus/master/patches/emacs-31/alpha-background.patch";
+          #   # sha256 = "10d62i3kr4ld5idiklzh3fv0rfc31pf8p0f9dbkavj30vzpzqz9v";
+          #   #sha256 = "aozFcD8Vo3/4/VfZdqPPCWdsBvBQicPPYzoozGxKVOk=";
+          #   sha256 = "qfZhWue2RgwEbiz64nKL0Nq5/loMGhg5oDK+gCNyHOg=";
+          # })
+          #
+          # # Modified patch to enable alpha-background on Emacs 31
+          # #./aplha-background.patch
+          #
+          # # Add blur need the aplha-background patch to work
+          # (prev.fetchpatch {
+          #   url = "https://raw.githubusercontent.com/bbenchen/homebrew-emacs-plus/master/patches/emacs-30/blur.patch";
+          #   # sha256 = "10d62i3kr4ld5idiklzh3fv0rfc31pf8p0f9dbkavj30vzpzqz9v";
+          #   sha256 = "X6ml5Gr5vUaQSb38H92lhK8X9D6oDL4bzmO1ujS74ws=";
+          # })
+                    # aplh-backgroud patch and blur patch have been replaced with frame-transparency patch
           (prev.fetchpatch {
-            url = "https://raw.githubusercontent.com/bbenchen/homebrew-emacs-plus/master/patches/emacs-31/alpha-background.patch";
+            url = "https://raw.githubusercontent.com/bbenchen/homebrew-emacs-plus/master/community/patches/frame-transparency/emacs-31.patch";
             # sha256 = "10d62i3kr4ld5idiklzh3fv0rfc31pf8p0f9dbkavj30vzpzqz9v";
             #sha256 = "aozFcD8Vo3/4/VfZdqPPCWdsBvBQicPPYzoozGxKVOk=";
-            sha256 = "qfZhWue2RgwEbiz64nKL0Nq5/loMGhg5oDK+gCNyHOg=";
+            sha256 = "sha256-FKhyNkd9dDqui2RAE6U6YNQuOlUPJ+3Wgn1mH0+mTBA=";
           })
-
-          # Modified patch to enable alpha-background on Emacs 31
-          #./aplha-background.patch
-
-          # Add blur need the aplha-background patch to work
-          (prev.fetchpatch {
-            url = "https://raw.githubusercontent.com/bbenchen/homebrew-emacs-plus/master/patches/emacs-30/blur.patch";
-            # sha256 = "10d62i3kr4ld5idiklzh3fv0rfc31pf8p0f9dbkavj30vzpzqz9v";
-            sha256 = "X6ml5Gr5vUaQSb38H92lhK8X9D6oDL4bzmO1ujS74ws=";
-          })
+          #
           # Make Emacs aware of OS-level light/dark mode
           # https://github.com/d12frosted/homebrew-emacs-plus#system-appearance-change
           (prev.fetchpatch {
