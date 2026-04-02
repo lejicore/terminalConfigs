@@ -19,11 +19,11 @@
 
     mac-app-util.url = "github:hraban/mac-app-util";
     sops-nix.url = "github:Mic92/sops-nix";
-    nix-rage = {
-      url = "github:renesat/nix-rage";
-      #url = "github:S0mbr3/nix-rage?ref=fix_missing_headers";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # nix-rage = {
+    #   url = "github:renesat/nix-rage";
+    #   #url = "github:S0mbr3/nix-rage?ref=fix_missing_headers";
+    #   inputs.nixpkgs.follows = "nixpkgs";
+    # };
 
     # https://nixos.wiki/wiki/Emacs
     # https://nixos.wiki/wiki/Overlays#In_a_Nix_flake
@@ -58,7 +58,7 @@
       nixpkgs,
       mac-app-util,
       emacs-overlay,
-      nix-rage,
+      # nix-rage,
       sops-nix,
       rust-overlay,
       emacs-src,
@@ -123,12 +123,12 @@
         pkgs = darwin-pkgs;
         system = "aarch64-darwin";
         modules = [
-          {
-            nix.settings.plugin-files = [
-              "${nix-rage.packages.${darwin-pkgs.system}.default}/lib/libnix_rage.dylib"
-              #"/Users/Nebj/test/libnix_rage.dylib"
-            ];
-          }
+          # {
+          #   nix.settings.plugin-files = [
+          #     "${nix-rage.packages.${darwin-pkgs.system}.default}/lib/libnix_rage.dylib"
+          #     #"/Users/Nebj/test/libnix_rage.dylib"
+          #   ];
+          # }
           { networking.hostName = rage-hostName; }
           ./secrets.nix
           mac-app-util.darwinModules.default
