@@ -149,3 +149,8 @@ bindurl https://www.youtube.com/ ;4 youtube-set-speed 2
 
 "Make chatgpt automatically press ctrl+enter when we use the "?q=text" parameter from searchurls
 autocmd DocStart https://chatgpt.com/* js (()=>{const u=new URL(location.href);if(!u.searchParams.get("q"))return;console.log("TCG ELITE armed");var w=setInterval(function(){var btn=document.querySelector('button[data-testid="send-button"]');if(!btn)return;if(btn.disabled)return;console.log("TCG READY — submitting");btn.click();clearInterval(w)},60)})()
+
+
+" Fixing duckduckgo "gi" action not being able to focus DDG search bar
+" The composite command allow to chain commands like pipe operator does for linux
+bindurl ^https://duckduckgo\.com gi composite scrollto 0 ; js document.querySelector('[name=q]').focus()
