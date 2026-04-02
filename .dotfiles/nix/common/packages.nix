@@ -35,7 +35,7 @@ with pkgs;
   sops
   age
   # openssh
-  nodePackages.prettierpackage
+  prettier
   emacsLejiWithPackages
   emacsPackages.cask
   jansson
