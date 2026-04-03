@@ -2105,7 +2105,16 @@ because compile mode is too slow"
   (setq lsp-clients-kotlin-server-executable "~/builds/kotlin-language-server/server/build/install/server/bin/kotlin-language-server")
   (setq lsp-completion-enable nil)
   (setq lsp-rust-server 'rust-analyzer) ; or 'rls
-
+  (general-define-key
+   :states 'normal
+   "grn" 'lsp-rename
+   "gra" 'lsp-execute-code-action
+   "grr" 'lsp-find-references
+   "gri" 'lsp-find-implementation
+   "grt" 'lsp-find-type-definition
+   "grd" 'lsp-find-definition
+   "g0" 'lsp-document-highlight)
+ 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; (setq lsp-clients-angular-language-server-command					   ;;
   ;; '("node"										   ;;
