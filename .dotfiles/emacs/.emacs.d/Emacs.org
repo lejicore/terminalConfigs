@@ -116,7 +116,8 @@ Uncomment [[;;(advice-add 'garbage-collect][;;(advice-add 'garbage...]] if you w
       (goto-char (point-max))
       (eval-print-last-sexp)))
   (load bootstrap-file nil 'nomessage))
-
+(straight-use-package 'org)
+(require 'org)
 (straight-use-package 'use-package)
 (add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
 
