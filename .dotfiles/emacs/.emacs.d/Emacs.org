@@ -3252,7 +3252,8 @@ We are using consult-dash as an ui-front end to parse dash-docs
   :straight t
   :mode (("~/.ssh/config\\'" . ssh-config-mode)
          ("sshd?_config\\'" . ssh-config-mode)))
-(setq tramp-shell-prompt-pattern "\\(?:^\\|\\)[^]\n#-%>❯]*#?[]#-%>❯][[:blank:]]*")
+(setq tramp-shell-prompt-pattern "\\(?:^\\|
+\\)[^]\n#-%>❯]*#?[]#-%>❯][[:blank:]]*")
 (setq tramp-histfile-override nil) ;; Don't override zsh history in ssh
 (add-to-list 'tramp-connection-properties
              (list (regexp-quote "/sshx:ledeb:")
