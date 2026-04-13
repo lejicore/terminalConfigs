@@ -79,7 +79,11 @@ in
 
   #mupdf
   copilot-language-server
+  bash-language-server
   eza
   hyperfine
   claude-code
+  claude-agent-acp
+  codex-acp
+  socat
 ]
