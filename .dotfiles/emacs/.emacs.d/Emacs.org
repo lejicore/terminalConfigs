@@ -3820,7 +3820,7 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
 #+begin_src emacs-lisp
 (defun my/darwin-rebuild ()
     (interactive)
-(async-shell-command "nd"))
+(async-shell-command "dr"))
 (defun my/home-manager-switch ()
     (interactive)
 (async-shell-command "hms"))
