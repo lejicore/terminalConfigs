@@ -4,6 +4,7 @@
 
 !/init.el
 !Emacs.org
+!early-init.el
 !vterm-renamer.el
 !delete-buffer-respect-vterm.el
 !snippets
