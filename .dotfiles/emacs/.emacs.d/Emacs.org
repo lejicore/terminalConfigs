@@ -1698,7 +1698,8 @@ Adding [[(define-key evil-motion-state-map (kbd "\\"][\]] as a secondary leader 
   :straight t
   :after evil
   :config
-  (evil-collection-init))
+    (evil-collection-init)
+    (setq evil-collection-vterm-send-escape-to-vterm-p t))
 
 (use-package evil-numbers
   :straight t
