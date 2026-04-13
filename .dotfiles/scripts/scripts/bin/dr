@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+cd ~/terminalConfigs/.dotfiles/nix/ || exit
+git add clear-secrets.nix secret-key secret.nix.age
+if [ -z "$1" ]; then
+sudo darwin-rebuild switch --flake ~/terminalConfigs/.dotfiles/nix#Personal-Darwin-Air
+elif [ "$1" = "-s" ]; then
+sudo darwin-rebuild switch --flake ~/terminalConfigs/.dotfiles/nix#Personal-Darwin-Air --show-trace
+else
+    echo "Unknown '$1' argument"
+fi
+
+git restore --staged clear-secrets.nix secret-key secret.nix.age
