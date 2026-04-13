@@ -3754,6 +3754,27 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
   :config
   (add-hook 'emacs-startup-hook #'mcp-server-start-unix))
 #+end_src
+* agent-shell
+#+begin_src emacs-lisp
+(use-package agent-shell
+    :straight t
+    :custom
+    (agent-shell-mistral-authentication
+        (agent-shell-mistral-make-authentication :api-key #'my-mistral-api-key))
+    (agent-shell-openai-authentication
+      (agent-shell-openai-make-authentication :login t)))
+  (defun my-mistral-api-key ()
+    (let ((auth-info (auth-source-search
+		      :host "api.mistral.ai"
+		      :user "apikey"
+		      :require '(:secret))))
+      (if auth-info
+	  (funcall (plist-get (car auth-info) :secret))
+	(error "Mistral AI API key not found in .authinfo"))))
+
+(ox/leader-keys
+    "a" '(agent-shell :which-key "agent-shell"))
+#+end_src
 * package creation
 #+begin_src emacs-lisp
 (use-package package-build
