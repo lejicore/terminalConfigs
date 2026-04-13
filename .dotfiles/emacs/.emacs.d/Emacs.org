@@ -2451,6 +2451,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 	  (:endgroup)
 	  ("@errand" . ?E)
 	  ("@home" . ?H)
+	  ("habit" . ?h)
 	  ("@work" . ?W)
 	  ("@learn" . ?L)
 	  ("@math" . ?m)
