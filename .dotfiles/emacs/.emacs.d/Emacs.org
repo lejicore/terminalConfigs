@@ -105,7 +105,6 @@ Uncomment [[;;(advice-add 'garbage-collect][;;(advice-add 'garbage...]] if you w
 * Configure straight and use-package
 
 #+begin_src emacs-lisp
-(require 'package)
 (let ((bootstrap-file
        (expand-file-name "straight/repos/straight.el/bootstrap.el" user-emacs-directory))
       (bootstrap-version 6))
