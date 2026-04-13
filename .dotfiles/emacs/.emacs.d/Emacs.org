@@ -179,23 +179,26 @@ We use the no-littering package to keep folders where we edit files and the Emac
 	  doom-themes-enable-italic t) ; if nil, italics is universally disabled
     ;;(load-theme 'doom-challenger-deep t)
     ;;(load-theme 'doom-moonlight t)
+    (defun ox/sanitize-gnus-theme-faces (args)
+      "Rewrite problematic Gnus face specs before a theme applies them."
+      (pcase-let ((`(,theme . ,specs) args))
+        (cons theme
+              (mapcar
+               (lambda (spec)
+                 (pcase (car-safe spec)
+                   ('gnus-group-mail-1
+                    '(gnus-group-mail-1 ((t (:inherit default :weight bold)))))
+                   ('gnus-group-mail-low
+                    '(gnus-group-mail-low ((t (:inherit default :weight normal)))))
+                   ('gnus-group-news-low
+                    '(gnus-group-news-low ((t (:inherit default :weight normal)))))
+                   ('gnus-group-news-low-empty
+                    '(gnus-group-news-low-empty ((t (:inherit default :weight normal)))))
+                   (_ spec)))
+               specs))))
+    (advice-add 'custom-theme-set-faces :filter-args #'ox/sanitize-gnus-theme-faces)
     (load-theme 'doom-outrun-electric t)
     (set-face-attribute 'line-number nil :foreground "purple")
-(defun ox/gnus-face-cycle-present-p ()
-  (condition-case nil
-      (progn
-        (face-attribute 'gnus-group-news-low :inherit)
-        nil)
-    (error t)))
-      (when (ox/gnus-face-cycle-present-p)
-;; Break stale/custom Gnus face inheritance loops which can surface when
-    ;; completion UIs ask Emacs to resolve annotated text properties.
-    (custom-theme-set-faces
-     'user
-     '(gnus-group-mail-1 ((t (:inherit default :weight bold))))
-     '(gnus-group-mail-low ((t (:inherit default :weight normal))))
-     '(gnus-group-news-low ((t (:inherit default :weight normal))))
-     '(gnus-group-news-low-empty ((t (:inherit default :weight normal))))))
 
     ;; Enable flashing mode-line on errors
     (doom-themes-visual-bell-config)
