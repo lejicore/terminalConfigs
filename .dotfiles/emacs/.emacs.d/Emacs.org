@@ -818,6 +818,7 @@ It can also add projects on the fly with the Add project option
     ";" '(comment-or-uncomment-region :which-key "comment or uncomment region")
     "\\" '(ox/eval :which-key "eval-last-sexp")
 
+    "f" '(:ignore t :which-key "files")
     "ff" '(find-file :which-key "find-file")
     "fe" '((lambda () (interactive) (find-file "~/terminalConfigs/.dotfiles/emacs/.emacs.d/Emacs.org")) :which-key "Open Emacs.org")
     "fl" '(ox/ledeb-dired :which-key "dired-ledeb")
