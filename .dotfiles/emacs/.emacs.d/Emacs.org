@@ -2931,9 +2931,7 @@ with treesit-auto you don't have to remap your self the major modes to point to 
 
 * Languages configuration
 #+begin_src emacs-lisp
-(unless (package-installed-p 'posframe)
-(package-refresh-contents)
-(package-install 'posframe))
+(straight-use-package 'posframe)
 
 
 (defvar c-popup-mode-map
