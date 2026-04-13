@@ -7,3 +7,4 @@ nohup.out
 .dotfiles/scripts/scripts/fete/day.json
 **/*~
 **/.DS_Store
+/.agent-shell/
