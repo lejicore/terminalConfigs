@@ -119,7 +119,6 @@ Uncomment [[;;(advice-add 'garbage-collect][;;(advice-add 'garbage...]] if you w
 (straight-use-package 'org)
 (require 'org)
 (straight-use-package 'use-package)
-(add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
 
 ;;(setq use-package-always-defer t)
 ;;(setq use-package-always-ensure nil)
