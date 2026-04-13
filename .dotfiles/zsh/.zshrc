@@ -335,4 +335,10 @@ export SDKMAN_DIR="$HOME/.sdkman"
 # To customize prompt, run `p10k configure` or edit ~/terminalConfigs/.dotfiles/zsh/.p10k.zsh.
 [[ ! -f ~/terminalConfigs/.dotfiles/zsh/.p10k.zsh ]] || source ~/terminalConfigs/.dotfiles/zsh/.p10k.zsh
 
+# --- Mistral Vibe / uv bootstrap ---
+# Installed via: curl .../vibe/install.sh | bash (2026-04-12)
+# Purpose: ensure ~/.local/bin is in PATH for uv + vibe binaries
+# Risk: executes sourced script on every shell startup
+# Safe: script audited (PATH prepend only)
 . "$HOME/.local/bin/env"
+# --- end ---
