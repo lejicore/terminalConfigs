@@ -76,8 +76,8 @@
 (setq ox/enable-ivy nil )
 (setq ox/enable-vertico t)
 (setq ox/enable-cape t )
+(setq initial-scratch-message ";; -*- lexical-binding: nil -*-\n;; This buffer is for text that is not saved, and for Lisp evaluation.\n;; To create a file, visit it with `\\[find-file]' and enter text in its buffer.\n\n")
 
-(require 'package)
 (let ((bootstrap-file
        (expand-file-name "straight/repos/straight.el/bootstrap.el" user-emacs-directory))
       (bootstrap-version 6))
@@ -89,9 +89,9 @@
       (goto-char (point-max))
       (eval-print-last-sexp)))
   (load bootstrap-file nil 'nomessage))
-
+(straight-use-package 'org)
+(require 'org)
 (straight-use-package 'use-package)
-(add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
 
 ;;(setq use-package-always-defer t)
 ;;(setq use-package-always-ensure nil)
@@ -142,23 +142,26 @@
 	  doom-themes-enable-italic t) ; if nil, italics is universally disabled
     ;;(load-theme 'doom-challenger-deep t)
     ;;(load-theme 'doom-moonlight t)
+    (defun ox/sanitize-gnus-theme-faces (args)
+      "Rewrite problematic Gnus face specs before a theme applies them."
+      (pcase-let ((`(,theme . ,specs) args))
+        (cons theme
+              (mapcar
+               (lambda (spec)
+                 (pcase (car-safe spec)
+                   ('gnus-group-mail-1
+                    '(gnus-group-mail-1 ((t (:inherit default :weight bold)))))
+                   ('gnus-group-mail-low
+                    '(gnus-group-mail-low ((t (:inherit default :weight normal)))))
+                   ('gnus-group-news-low
+                    '(gnus-group-news-low ((t (:inherit default :weight normal)))))
+                   ('gnus-group-news-low-empty
+                    '(gnus-group-news-low-empty ((t (:inherit default :weight normal)))))
+                   (_ spec)))
+               specs))))
+    (advice-add 'custom-theme-set-faces :filter-args #'ox/sanitize-gnus-theme-faces)
     (load-theme 'doom-outrun-electric t)
     (set-face-attribute 'line-number nil :foreground "purple")
-(defun ox/gnus-face-cycle-present-p ()
-  (condition-case nil
-      (progn
-        (face-attribute 'gnus-group-news-low :inherit)
-        nil)
-    (error t)))
-      (when (ox/gnus-face-cycle-present-p)
-;; Break stale/custom Gnus face inheritance loops which can surface when
-    ;; completion UIs ask Emacs to resolve annotated text properties.
-    (custom-theme-set-faces
-     'user
-     '(gnus-group-mail-1 ((t (:inherit default :weight bold))))
-     '(gnus-group-mail-low ((t (:inherit default :weight normal))))
-     '(gnus-group-news-low ((t (:inherit default :weight normal))))
-     '(gnus-group-news-low-empty ((t (:inherit default :weight normal))))))
 
     ;; Enable flashing mode-line on errors
     (doom-themes-visual-bell-config)
@@ -744,6 +747,7 @@
     ";" '(comment-or-uncomment-region :which-key "comment or uncomment region")
     "\\" '(ox/eval :which-key "eval-last-sexp")
 
+    "f" '(:ignore t :which-key "files")
     "ff" '(find-file :which-key "find-file")
     "fe" '((lambda () (interactive) (find-file "~/terminalConfigs/.dotfiles/emacs/.emacs.d/Emacs.org")) :which-key "Open Emacs.org")
     "fl" '(ox/ledeb-dired :which-key "dired-ledeb")
@@ -1439,7 +1443,8 @@ folder, otherwise delete a word"
   :straight t
   :after evil
   :config
-  (evil-collection-init))
+    (evil-collection-init)
+    (setq evil-collection-vterm-send-escape-to-vterm-p t))
 
 (use-package evil-numbers
   :straight t
@@ -1696,7 +1701,7 @@ because compile mode is too slow"
   :defer t)
 
 (use-package rustic
-  :ensure t
+  :straight t
   :after rust-ts-mode
   :hook ((rustic-popup-mode . my-set-evil-state-in-rustic-popup-mode)
          (rustic-mode . rustic-mode-auto-save-hook))
@@ -1815,6 +1820,7 @@ because compile mode is too slow"
    (css-ts-mode . lsp-deferred)
    (html-mode . lsp-deferred)
    (nix-ts-mode . lsp-deferred)
+   (bash-ts-mode . lsp-deferred)
    ;; (rust-ts-mode . lsp-deferred)
    (js-ts-mode . lsp-deferred))
   :init
@@ -1824,7 +1830,16 @@ because compile mode is too slow"
   (setq lsp-clients-kotlin-server-executable "~/builds/kotlin-language-server/server/build/install/server/bin/kotlin-language-server")
   (setq lsp-completion-enable nil)
   (setq lsp-rust-server 'rust-analyzer) ; or 'rls
-
+  (general-define-key
+   :states 'normal
+   "grn" 'lsp-rename
+   "gra" 'lsp-execute-code-action
+   "grr" 'lsp-find-references
+   "gri" 'lsp-find-implementation
+   "grt" 'lsp-find-type-definition
+   "grd" 'lsp-find-definition
+   "g0" 'lsp-document-highlight)
+ 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; (setq lsp-clients-angular-language-server-command					   ;;
   ;; '("node"										   ;;
@@ -1926,6 +1941,28 @@ because compile mode is too slow"
 (use-package treemacs-projectile
   :straight t
   :after lsp-treemacs)
+
+;; Treemacs still registers a one-argument `persp-mode` activation hook, but
+;; recent `persp-mode` versions call `persp-activated-functions` with three
+;; arguments: activation kind, target frame/window, and perspective.
+(with-eval-after-load 'treemacs
+  (with-eval-after-load 'persp-mode
+    (defun ox/treemacs-remove-window-after-persp-activation (&rest args)
+      "Hide a stale Treemacs window after perspective activation.
+Accept `persp-mode' activation hooks with either the legacy 1-arg or current
+3-arg signature."
+      (let ((persp-activated-for (car args)))
+        (when (eq persp-activated-for 'frame)
+          (-when-let (w (--first (treemacs-is-treemacs-window? it)
+                                 (window-list)))
+            (unless (assoc (treemacs-scope->current-scope treemacs--current-scope-type)
+                           treemacs--scope-storage)
+              (delete-window w))))))
+    (when (boundp 'persp-activated-functions)
+      (remove-hook 'persp-activated-functions
+                   #'treemacs--remove-treemacs-window-in-new-frames)
+      (add-hook 'persp-activated-functions
+                #'ox/treemacs-remove-window-after-persp-activation))))
 
 ;; (use-package dap-mode
 ;;   :straight t
@@ -2098,7 +2135,7 @@ because compile mode is too slow"
 
   (setq org-todo-keywords
 	'((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d!)")
-	  (sequence "TODO(t)" "HABIT(h)" "|" "DONE(d!)")
+	  (sequence "HABIT(h)" "|" "DONE(d!)")
 	  (sequence "BUYING(b1)" "|" "bought(B!)")
 	  (sequence "BACKLOG(b)" "PLAN(p)" "READY(r)" "ACTIVE(a)" "REVIEW(v)" "WAIT(w@/!)" "HOLD(h)" "|" "COMPLETED(c)" "CANC(k@)")
 	  (sequence "A-PLAN()" "A-READY()" "A-ACTIVE()" "A-REVIEW()" "A-WAIT(@/!)" "A-HOLD()" "|" "A-COMPLETED(c)" "A-CANC(k@)")))
@@ -2116,6 +2153,7 @@ because compile mode is too slow"
 	  (:endgroup)
 	  ("@errand" . ?E)
 	  ("@home" . ?H)
+	  ("habit" . ?h)
 	  ("@work" . ?W)
 	  ("@learn" . ?L)
 	  ("@math" . ?m)
@@ -2546,9 +2584,7 @@ because compile mode is too slow"
   (global-tree-sitter-mode)
   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 
-(unless (package-installed-p 'posframe)
-(package-refresh-contents)
-(package-install 'posframe))
+(straight-use-package 'posframe)
 
 
 (defvar c-popup-mode-map
@@ -2650,11 +2686,20 @@ map)
 (use-package indent-bars
   :straight (indent-bars :type git :host github :repo "jdtsmith/indent-bars")
   :custom
+    (indent-bars-starting-column 0) ; set to nil for default behavior, 0 will create all the bars
   (indent-bars-treesit-support t)
+    (indent-bars-display-on-blank-lines t)
+    (indent-bars-highlight-current-depth '(:blend 0.8 :pattern "."))
   (indent-bars-treesit-ignore-blank-lines-types '("module"))
   ;; Add other languages as needed
-  (indent-bars-treesit-scope '((python function_definition class_definition for_statement
-	  if_statement with_statement while_statement)))
+    ;;(indent-bars-treesit-scope '((python function_definition class_definition for_statement
+	                           ;;if_statement with_statement while_statement try_statement match_statement)))
+    (indent-bars-treesit-wrap
+        '((c argument_list parameter_list init_declarator parenthesized_expression)
+             (python argument_list parameters
+				      list list_comprehension
+				      dictionary dictionary_comprehension
+				      parenthesized_expression subscript)))
   ;; wrap may not be needed if no-descend-list is enough
   ;;(indent-bars-treesit-wrap '((python argument_list parameters ; for python, as an example
   ;;				      list list_comprehension
@@ -2834,7 +2879,8 @@ map)
   :straight t
   :mode (("~/.ssh/config\\'" . ssh-config-mode)
          ("sshd?_config\\'" . ssh-config-mode)))
-(setq tramp-shell-prompt-pattern "\\(?:^\\|\\)[^]\n#-%>❯]*#?[]#-%>❯][[:blank:]]*")
+(setq tramp-shell-prompt-pattern "\\(?:^\\|
+\\)[^]\n#-%>❯]*#?[]#-%>❯][[:blank:]]*")
 (setq tramp-histfile-override nil) ;; Don't override zsh history in ssh
 (add-to-list 'tramp-connection-properties
              (list (regexp-quote "/sshx:ledeb:")
@@ -3277,6 +3323,31 @@ map)
                      :description "The path to show files."))
  :category "emacs")
 
+(use-package mcp-server
+  :straight (:type git :host github :repo "rhblind/emacs-mcp-server"
+             :files ("*.el" "tools/*.el" "mcp-wrapper.py" "mcp-wrapper.sh"))
+  :config
+  (add-hook 'emacs-startup-hook #'mcp-server-start-unix))
+
+(use-package agent-shell
+    :straight t
+    :custom
+    (agent-shell-mistral-authentication
+        (agent-shell-mistral-make-authentication :api-key #'my-mistral-api-key))
+    (agent-shell-openai-authentication
+      (agent-shell-openai-make-authentication :login t)))
+  (defun my-mistral-api-key ()
+    (let ((auth-info (auth-source-search
+		      :host "api.mistral.ai"
+		      :user "apikey"
+		      :require '(:secret))))
+      (if auth-info
+	  (funcall (plist-get (car auth-info) :secret))
+	(error "Mistral AI API key not found in .authinfo"))))
+
+(ox/leader-keys
+    "a" '(agent-shell :which-key "agent-shell"))
+
 (use-package package-build
   :straight t)
 
@@ -3308,6 +3379,17 @@ map)
 ;;               "\\.odt\\'" "\\.ods\\'" "\\.odp\\'" "\\.odg\\'"
 ;;               "\\.docx\\'" "\\.pptx\\'" "\\.xlsx\\'"))
 ;;   (add-to-list 'auto-mode-alist (cons rx 'reader-mode)))
+
+(defun my/darwin-rebuild ()
+    (interactive)
+(async-shell-command "nd"))
+(defun my/home-manager-switch ()
+    (interactive)
+(async-shell-command "hms"))
+(ox/leader-keys
+    "d" '(:ignore t :which-key "nix-darwin")
+    "dr" '(my/darwin-rebuild :which-key "darwin-rebuild")
+    "dh" '(my/home-manager-switch :which-key "home-manager-switch"))
 
 ;; Make gc pauses faster by decreasubg tge threshold.
 ;;(setq gc-cons-threshold (* 2 1000 000))
