@@ -1968,7 +1968,7 @@ because compile mode is too slow"
   :defer t)
 
 (use-package rustic
-  :ensure t
+  :straight t
   :after rust-ts-mode
   :hook ((rustic-popup-mode . my-set-evil-state-in-rustic-popup-mode)
          (rustic-mode . rustic-mode-auto-save-hook))
