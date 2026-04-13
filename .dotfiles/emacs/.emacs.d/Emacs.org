@@ -3816,6 +3816,19 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
 ;;   (add-to-list 'auto-mode-alist (cons rx 'reader-mode)))
  #+end_src
 
+* nix-darwin
+#+begin_src emacs-lisp
+(defun my/darwin-rebuild ()
+    (interactive)
+(async-shell-command "nd"))
+(defun my/home-manager-switch ()
+    (interactive)
+(async-shell-command "hms"))
+(ox/leader-keys
+    "d" '(:ignore t :which-key "nix-darwin")
+    "dr" '(my/darwin-rebuild :which-key "darwin-rebuild")
+    "dh" '(my/home-manager-switch :which-key "home-manager-switch"))
+#+end_src
 * Runtime Performance
 #+begin_src emacs-lisp
 ;; Make gc pauses faster by decreasubg tge threshold.
