@@ -2224,6 +2224,28 @@ because compile mode is too slow"
   :straight t
   :after lsp-treemacs)
 
+;; Treemacs still registers a one-argument `persp-mode` activation hook, but
+;; recent `persp-mode` versions call `persp-activated-functions` with three
+;; arguments: activation kind, target frame/window, and perspective.
+(with-eval-after-load 'treemacs
+  (with-eval-after-load 'persp-mode
+    (defun ox/treemacs-remove-window-after-persp-activation (&rest args)
+      "Hide a stale Treemacs window after perspective activation.
+Accept `persp-mode' activation hooks with either the legacy 1-arg or current
+3-arg signature."
+      (let ((persp-activated-for (car args)))
+        (when (eq persp-activated-for 'frame)
+          (-when-let (w (--first (treemacs-is-treemacs-window? it)
+                                 (window-list)))
+            (unless (assoc (treemacs-scope->current-scope treemacs--current-scope-type)
+                           treemacs--scope-storage)
+              (delete-window w))))))
+    (when (boundp 'persp-activated-functions)
+      (remove-hook 'persp-activated-functions
+                   #'treemacs--remove-treemacs-window-in-new-frames)
+      (add-hook 'persp-activated-functions
+                #'ox/treemacs-remove-window-after-persp-activation))))
+
 #+end_src
 
 * Dap mode
