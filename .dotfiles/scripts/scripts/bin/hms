@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+cd ~/terminalConfigs/.dotfiles/nix/ || exit
+git add clear-secrets.nix secret-key secret.nix.age
+
+nix run home-manager -- "$@" switch --flake ~/terminalConfigs/.dotfiles/nix#nebj
+
+git restore --staged clear-secrets.nix secret-key secret.nix.age
