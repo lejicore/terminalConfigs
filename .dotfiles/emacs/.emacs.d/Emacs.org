@@ -2433,7 +2433,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 
   (setq org-todo-keywords
 	'((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d!)")
-	  (sequence "TODO(t)" "HABIT(h)" "|" "DONE(d!)")
+	  (sequence "HABIT(h)" "|" "DONE(d!)")
 	  (sequence "BUYING(b1)" "|" "bought(B!)")
 	  (sequence "BACKLOG(b)" "PLAN(p)" "READY(r)" "ACTIVE(a)" "REVIEW(v)" "WAIT(w@/!)" "HOLD(h)" "|" "COMPLETED(c)" "CANC(k@)")
 	  (sequence "A-PLAN()" "A-READY()" "A-ACTIVE()" "A-REVIEW()" "A-WAIT(@/!)" "A-HOLD()" "|" "A-COMPLETED(c)" "A-CANC(k@)")))
