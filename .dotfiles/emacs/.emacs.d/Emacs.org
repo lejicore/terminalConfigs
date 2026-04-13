@@ -98,6 +98,8 @@ Uncomment [[;;(advice-add 'garbage-collect][;;(advice-add 'garbage...]] if you w
 (setq ox/enable-ivy nil )
 (setq ox/enable-vertico t)
 (setq ox/enable-cape t )
+(setq initial-scratch-message ";; -*- lexical-binding: nil -*-\n;; This buffer is for text that is not saved, and for Lisp evaluation.\n;; To create a file, visit it with `\\[find-file]' and enter text in its buffer.\n\n")
+
 #+end_src
 
 * Configure straight and use-package
