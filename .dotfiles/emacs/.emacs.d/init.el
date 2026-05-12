@@ -876,6 +876,7 @@ folder, otherwise delete a word"
   :straight t
   :after corfu
   :hook ((prog-mode org-mode text-mode makefile-mode) . +cape-capf-hook)
+  :hook (git-commit-mode . +cape-git-commit-capf-hook)
   :init
   (defvar +cape-text-capf nil)
   (defvar +cape-lsp-capf nil)
@@ -900,6 +901,9 @@ folder, otherwise delete a word"
       (setq-local completion-at-point-functions
                   (append (list primary-capf #'cape-file)
                           (nreverse filtered-capfs)))))
+  (defun +cape-git-commit-capf-hook ()
+    (setq-local completion-at-point-functions
+                (delq #'dabbrev-capf completion-at-point-functions)))
 ;;   ;; Disable lsp-completion-mode from being automatically enabled
 ;; (with-eval-after-load 'lsp-mode
 ;;   (add-hook 'lsp-configure-hook 'lsp-completion--disable))
