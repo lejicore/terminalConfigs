@@ -86,4 +86,9 @@ in
   claude-agent-acp
   codex-acp
   socat
+  python314Packages.grip
+  opencode
+  qwen-code
+  gemini-cli
+  dbeaver-bin
 ]
