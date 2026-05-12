@@ -149,10 +149,10 @@
           }
           ./darwin
 
-          darwin-networking.darwinModules.newFirewall
+          darwin-networking.darwinModules.firewall
 
           {
-            darwin-networking.newFirewall = {
+            darwin-networking.firewall = {
               enable = false;
               managePfConf = true;
               anchorName = "nix-firewall";
