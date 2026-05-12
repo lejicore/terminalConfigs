@@ -3810,20 +3810,34 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
 * mcp-server
 #+begin_src emacs-lisp
 (use-package mcp-server
-  :straight (:type git :host github :repo "rhblind/emacs-mcp-server"
-             :files ("*.el" "tools/*.el" "mcp-wrapper.py" "mcp-wrapper.sh"))
-  :config
-  (add-hook 'emacs-startup-hook #'mcp-server-start-unix))
+    :straight (:type git :host github :repo "rhblind/emacs-mcp-server"
+                  :files ("*.el" "tools/*.el" "mcp-wrapper.py" "mcp-wrapper.sh"))
+    :config
+    (add-hook 'emacs-startup-hook #'mcp-server-start-unix)
+    :custom
+    (mcp-server-security-prompt-for-permissions t))
 #+end_src
 * agent-shell
 #+begin_src emacs-lisp
 (use-package agent-shell
     :straight t
+    :config
+    (with-eval-after-load 'evil
+        (evil-define-key '(visual insert normal)
+        global-map
+        (kbd "C-1")
+        #'agent-shell-toggle))
     :custom
     (agent-shell-mistral-authentication
         (agent-shell-mistral-make-authentication :api-key #'my-mistral-api-key))
     (agent-shell-openai-authentication
-      (agent-shell-openai-make-authentication :login t)))
+        (agent-shell-openai-make-authentication :login t))
+    (agent-shell-mcp-servers
+      `(((name . "emacs")
+         (command . "python3")
+         (args . (,(expand-file-name "~/.cache/emacs/straight/repos/emacs-mcp-server/mcp-wrapper.py")
+                  ,(expand-file-name "~/.cache/emacs/emacs-mcp-server.sock")))
+         (env . ())))))
   (defun my-mistral-api-key ()
     (let ((auth-info (auth-source-search
 		      :host "api.mistral.ai"
