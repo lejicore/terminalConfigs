@@ -1815,6 +1815,7 @@ Adding [[(define-key evil-motion-state-map (kbd "\\"][\]] as a secondary leader 
 (define-key evil-motion-state-map (kbd "\\") 'my-evil-leader-map)
 
 ;; Bind commands under the new leader key
+(define-key my-evil-leader-map (kbd "a") 'agent-shell)   ;; Agent-shell
 (define-key my-evil-leader-map (kbd "w") 'evil-write)   ;; Save
 (define-key my-evil-leader-map (kbd "d") 'evil-delete-buffer) ;; Kill buffer
 (define-key my-evil-leader-map (kbd "b") 'consult-persp-buffer) ;; Switch buffer in persp
