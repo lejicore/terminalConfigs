@@ -1921,6 +1921,10 @@ because compile mode is too slow"
   :straight t
   :mode (("Caddyfile\\'" . caddyfile-mode)
          ("caddy\\.conf\\'" . caddyfile-mode)))
+(use-package dotenv-mode
+    :straight t
+    :mode (("\\.env\\..*\\'" . dotenv-mode)))
+    
 
 (use-package lua-mode
   :straight t
