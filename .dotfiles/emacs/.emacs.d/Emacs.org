@@ -1906,7 +1906,7 @@ because compile mode is too slow"
 
 
 (use-package text-mode ;;
-    :mode (".tridactylrc"))  ;;
+    :mode (".tridactylrc" ".gitignore"))  ;;
 
 (use-package eros
   :straight t
