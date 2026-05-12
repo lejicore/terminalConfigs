@@ -3088,6 +3088,7 @@ so use-package can load it. By using straight it does not work. Waiting for this
 #+begin_src emacs-lisp
 (use-package combobulate
   ;; :straight (combobulate :type git :host github :repo "mickeynp/combobulate")
+  :disabled t
   :custom
   ;; You can customize Combobulate's key prefix here.
   ;; Note that you may have to restart Emacs for this to take effect!
