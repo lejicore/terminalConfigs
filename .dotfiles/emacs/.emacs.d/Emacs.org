@@ -2752,6 +2752,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
   (add-to-list 'org-structure-template-alist '("py" . "src python"))
   (add-to-list 'org-structure-template-alist '("cc" . "src C"))
   (add-to-list 'org-src-lang-modes '("yaml" . yaml-ts)) ;; Changing mode for org-edit-special C-c '
+  (add-to-list 'org-src-lang-modes '("typescript" . typescript-ts))
   )
 #+end_src
 
