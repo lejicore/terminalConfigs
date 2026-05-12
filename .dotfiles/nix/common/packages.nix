@@ -59,7 +59,7 @@ in
   yt-dlp
   aria2
   mpv
-  aider-chat
+  #aider-chat
   texliveFull
   bat
   typescript
