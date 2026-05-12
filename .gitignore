@@ -8,3 +8,4 @@ nohup.out
 **/*~
 **/.DS_Store
 /.agent-shell/
+.dotfiles/nix/dev/postgresql/.env
