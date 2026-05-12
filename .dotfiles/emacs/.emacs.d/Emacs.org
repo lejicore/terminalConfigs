@@ -1058,7 +1058,7 @@ folder, otherwise delete a word"
   :custom
   (corfu-auto t)
   (corfu-cycle t)
-  (corfu-auto-delay 0.0)
+  (corfu-auto-delay 0.12)
   ;;(corfu-auto-delay 0)
   (corfu-auto-prefix 1)
   :config
@@ -1074,22 +1074,31 @@ folder, otherwise delete a word"
 (use-package cape
   :straight t
   :after corfu
-  :hook ((lsp-after-initialize  prog-mode org-mode text-mode makefile-mode) . +cape-capf-hook)
+  :hook ((prog-mode org-mode text-mode makefile-mode) . +cape-capf-hook)
   :init
+  (defvar +cape-text-capf nil)
+  (defvar +cape-lsp-capf nil)
   (defun +cape-capf-hook()
-    (if (or (derived-mode-p 'lisp-interaction-mode)
-            (derived-mode-p 'emacs-lisp-mode)
-	    (derived-mode-p 'org-mode)
-	    (derived-mode-p 'text-mode)
-	    (derived-mode-p 'makefile-mode))
-	(progn
-	  (setq completion-at-point-functions
-      (list (cape-capf-super #'yasnippet-capf #'cape-dabbrev)))
-	  (add-to-list 'completion-at-point-functions #'cape-file))
-      (progn
-	(add-to-list 'completion-at-point-functions
-                     (cape-capf-super #'yasnippet-capf #'lsp-completion-at-point #'cape-dabbrev))
-        (add-to-list 'completion-at-point-functions #'cape-file))))
+    (setq +cape-text-capf
+          (or +cape-text-capf
+              (cape-capf-super #'yasnippet-capf #'cape-dabbrev)))
+    (setq +cape-lsp-capf
+          (or +cape-lsp-capf
+              (cape-capf-super #'yasnippet-capf #'lsp-completion-at-point #'cape-dabbrev)))
+    (let* ((text-capf-mode-p
+            (or (derived-mode-p 'lisp-interaction-mode)
+                (derived-mode-p 'emacs-lisp-mode)
+	        (derived-mode-p 'org-mode)
+	        (derived-mode-p 'text-mode)
+	        (derived-mode-p 'makefile-mode)))
+           (primary-capf (if text-capf-mode-p +cape-text-capf +cape-lsp-capf))
+           filtered-capfs)
+      (dolist (capf completion-at-point-functions)
+        (unless (memq capf (list +cape-text-capf +cape-lsp-capf #'cape-file))
+          (push capf filtered-capfs)))
+      (setq-local completion-at-point-functions
+                  (append (list primary-capf #'cape-file)
+                          (nreverse filtered-capfs)))))
 ;;   ;; Disable lsp-completion-mode from being automatically enabled
 ;; (with-eval-after-load 'lsp-mode
 ;;   (add-hook 'lsp-configure-hook 'lsp-completion--disable))
