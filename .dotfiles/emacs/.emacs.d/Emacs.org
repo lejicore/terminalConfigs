@@ -2318,7 +2318,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 #+end_src
 * auth-source
 #+begin_src emacs-lisp
-(let* ((auth (auth-source-search :host "api.github.com" :user "S0mbr3^forge"))
+(let* ((auth (auth-source-search :host "api.github.com" :user "lejicore^forge"))
        (token (funcall (plist-get (car auth) :secret))))
   ;; Now 'token' contains your GitHub token, and you can use it in your code.
   )
