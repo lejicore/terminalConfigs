@@ -43,6 +43,7 @@
       #url = "github:emacs-mirror/emacs?rev=7fae44485703a07127946e1ee26ad2a3d618733a"; # <- 18 August 2026
       #url = "github:emacs-mirror/emacs?rev=c96c89faaa02a2ff76ec30146ba466aece622603"; # <- 22 March 2026
       #url = "github:emacs-mirror/emacs?rev=4baa427ee45c1dbb07e9af03328d48a8268c2832"; # <- 01 April 2026
+      #url = "github:emacs-mirror/emacs?rev=20b6edf1677f22fb0a2adf960ba17b26ac256430"; # <- 26 April
 
       flake = false; # it is *not* a flake
     };
