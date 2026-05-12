@@ -2611,9 +2611,11 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 
   (setq org-capture-templates
 	`(("t" "Tasks / Projects")
-	  ("tc" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	  ("tc" "Task+file" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
 	   "* TODO %?\n  %U\n  %a\n  %i" :empty-lines 1)
 	  ("tt" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	   "* TODO %?\n  %U\n  %i" :empty-lines 1)
+	  ("tp" "GaulBOT" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "GaulBOT")
 	   "* TODO %?\n  %U\n  %i" :empty-lines 1)
 
 	  ("s" "Shopping / Projects")
