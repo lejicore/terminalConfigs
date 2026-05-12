@@ -97,9 +97,10 @@ in
       "jdownloader"
       "ungoogled-chromium"
       "battery-toolkit"
+      "docker-desktop"
     ];
     caskArgs = {
-      no_quarantine = true;
+      #no_quarantine = true;
     };
   };
 
