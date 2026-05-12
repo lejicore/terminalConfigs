@@ -35,7 +35,8 @@ rec {
         env = (oldAttrs.env or { }) // {
           NIX_CFLAGS_COMPILE = (oldAttrs.env.NIX_CFLAGS_COMPILE or "") + " -O2 -march=native -mtune=native";
         };
-        makeFlags = (oldAttrs.makeFlags or [ ]) ++ [ "NATIVE_FULL_AOT=1" ];
+        #makeFlags = (oldAttrs.makeFlags or [ ]) ++ [ "NATIVE_FULL_AOT=1" ];
+        makeFlags = oldAttrs.makeFlags or [ ];
       });
   emacsLeji =
     if prev.stdenv.isDarwin then
@@ -76,13 +77,15 @@ rec {
           #   # sha256 = "10d62i3kr4ld5idiklzh3fv0rfc31pf8p0f9dbkavj30vzpzqz9v";
           #   sha256 = "X6ml5Gr5vUaQSb38H92lhK8X9D6oDL4bzmO1ujS74ws=";
           # })
-                    # aplh-backgroud patch and blur patch have been replaced with frame-transparency patch
-          (prev.fetchpatch {
-            url = "https://raw.githubusercontent.com/bbenchen/homebrew-emacs-plus/master/community/patches/frame-transparency/emacs-31.patch";
-            # sha256 = "10d62i3kr4ld5idiklzh3fv0rfc31pf8p0f9dbkavj30vzpzqz9v";
-            #sha256 = "aozFcD8Vo3/4/VfZdqPPCWdsBvBQicPPYzoozGxKVOk=";
-            sha256 = "sha256-FKhyNkd9dDqui2RAE6U6YNQuOlUPJ+3Wgn1mH0+mTBA=";
-          })
+          # aplh-backgroud patch and blur patch have been replaced with frame-transparency patch
+          ./frame-transparency.patch
+          # (prev.fetchpatch {
+          #   url = "https://raw.githubusercontent.com/bbenchen/homebrew-emacs-plus/master/community/patches/frame-transparency/emacs-31.patch";
+          #   # sha256 = "10d62i3kr4ld5idiklzh3fv0rfc31pf8p0f9dbkavj30vzpzqz9v";
+          #   #sha256 = "aozFcD8Vo3/4/VfZdqPPCWdsBvBQicPPYzoozGxKVOk=";
+          #   #sha256 = "sha256-FKhyNkd9dDqui2RAE6U6YNQuOlUPJ+3Wgn1mH0+mTBA=";
+          #   sha256 = "sha256-q0VKU8gyIOZ7c14sY0ypLrTMIuzEqIfMUupnSsmqEHI=";
+          # })
           #
           # Make Emacs aware of OS-level light/dark mode
           # https://github.com/d12frosted/homebrew-emacs-plus#system-appearance-change
