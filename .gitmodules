@@ -8,17 +8,17 @@
 	path = .dotfiles/.dotfiles/nodenv/.nodenv
 	url = https://github.com/nodenv/nodenv.git
 [submodule "scripts/fz"]
-	path = scripts/fz
-	url = git@github.com:S0mbr3/fz.git
+	path = .dotfiles/scripts/scripts/fz
+	url = git@github.com:lejicore/fz.git
 [submodule ".dotfiles/scripts/scripts/finder"]
 	path = .dotfiles/scripts/scripts/finder
-	url = git@github.com:S0mbr3/finder.git
+	url = git@github.com:lejicore/finder.git
 [submodule ".dotfiles/scripts/scripts/install_mutagen/"]
 	path = .dotfiles/scripts/scripts/install_mutagen/
-	url = git@github.com:S0mbr3/install_mutagen.git
+	url = git@github.com:lejicore/install_mutagen.git
 [submodule ".dotfiles/awesome/net_widgets"]
     path = .dotfiles/awesome/net_widgets
     url = https://github.com/username/repo-url.git
 [submodule ".dotfiles/scripts/scripts/install_mutagen"]
 	path = .dotfiles/scripts/scripts/install_mutagen
-	url = git@github.com:S0mbr3/install_mutagen.git
+	url = git@github.com:lejicore/install_mutagen.git
