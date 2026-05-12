@@ -859,7 +859,7 @@ folder, otherwise delete a word"
   :custom
   (corfu-auto t)
   (corfu-cycle t)
-  (corfu-auto-delay 0.0)
+  (corfu-auto-delay 0.12)
   ;;(corfu-auto-delay 0)
   (corfu-auto-prefix 1)
   :config
@@ -875,22 +875,31 @@ folder, otherwise delete a word"
 (use-package cape
   :straight t
   :after corfu
-  :hook ((lsp-after-initialize  prog-mode org-mode text-mode makefile-mode) . +cape-capf-hook)
+  :hook ((prog-mode org-mode text-mode makefile-mode) . +cape-capf-hook)
   :init
+  (defvar +cape-text-capf nil)
+  (defvar +cape-lsp-capf nil)
   (defun +cape-capf-hook()
-    (if (or (derived-mode-p 'lisp-interaction-mode)
-            (derived-mode-p 'emacs-lisp-mode)
-	    (derived-mode-p 'org-mode)
-	    (derived-mode-p 'text-mode)
-	    (derived-mode-p 'makefile-mode))
-	(progn
-	  (setq completion-at-point-functions
-      (list (cape-capf-super #'yasnippet-capf #'cape-dabbrev)))
-	  (add-to-list 'completion-at-point-functions #'cape-file))
-      (progn
-	(add-to-list 'completion-at-point-functions
-                     (cape-capf-super #'yasnippet-capf #'lsp-completion-at-point #'cape-dabbrev))
-        (add-to-list 'completion-at-point-functions #'cape-file))))
+    (setq +cape-text-capf
+          (or +cape-text-capf
+              (cape-capf-super #'yasnippet-capf #'cape-dabbrev)))
+    (setq +cape-lsp-capf
+          (or +cape-lsp-capf
+              (cape-capf-super #'yasnippet-capf #'lsp-completion-at-point #'cape-dabbrev)))
+    (let* ((text-capf-mode-p
+            (or (derived-mode-p 'lisp-interaction-mode)
+                (derived-mode-p 'emacs-lisp-mode)
+	        (derived-mode-p 'org-mode)
+	        (derived-mode-p 'text-mode)
+	        (derived-mode-p 'makefile-mode)))
+           (primary-capf (if text-capf-mode-p +cape-text-capf +cape-lsp-capf))
+           filtered-capfs)
+      (dolist (capf completion-at-point-functions)
+        (unless (memq capf (list +cape-text-capf +cape-lsp-capf #'cape-file))
+          (push capf filtered-capfs)))
+      (setq-local completion-at-point-functions
+                  (append (list primary-capf #'cape-file)
+                          (nreverse filtered-capfs)))))
 ;;   ;; Disable lsp-completion-mode from being automatically enabled
 ;; (with-eval-after-load 'lsp-mode
 ;;   (add-hook 'lsp-configure-hook 'lsp-completion--disable))
@@ -1131,9 +1140,9 @@ folder, otherwise delete a word"
     (with-eval-after-load 'evil
         ;; Important: bind in Evil's insert state for vterm
         (evil-define-key '(insert) vterm-mode-map
-        (kbd "C-h") #'vterm-send-backspace
-        (kbd "<backspace>") #'vterm-send-backspace
-        (kbd "DEL") #'vterm-send-backspace))
+            (kbd "C-h") #'vterm-send-backspace
+            (kbd "<backspace>") #'vterm-send-backspace
+            (kbd "DEL") #'vterm-send-backspace))
 
     ;; Remove mappings of alt+numbers from vterm
     (dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
@@ -1152,12 +1161,52 @@ folder, otherwise delete a word"
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
 
     (setq vterm-max-scrollback 10000)
-    (setq term-prompt-regexp "^[^❯\n]*[❯] *"))
-;;(setq term-prompt-regexp "^[^❯\n]*[.*❯] .*"))
-;;(setq term-prompt-regexp "^[^❯\n]*[❯] *"))
-;;(setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *"))
-;; :hook (vterm-mode . (lambda ()
-;; 			(evil-emacs-state))))
+    ;;(setq term-prompt-regexp "^[^❯\n]*[❯] *") ;;OUTDATED
+    ;;(setq term-prompt-regexp "^[^╰─❯\n]*[╰─❯] *"))
+    ;;(setq term-prompt-regexp "^[^❯\n]*[.*❯] .*"))
+    ;;(setq term-prompt-regexp "^[^❯\n]*[❯] *"))
+    ;;(setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *"))
+    ;; :hook (vterm-mode . (lambda ()
+    ;; 			(evil-emacs-state))))
+
+    (defun my/vterm-prompt-has-command-p ()
+        "Return t if the line at point has a command after the prompt symbol."
+        (save-excursion
+            (beginning-of-line)
+            (looking-at "^[^❯\n]*❯ +[^ \n]")))
+
+    (defun my/vterm-previous-prompt ()
+        (interactive)
+        (let ((origin (point)))
+            (catch 'found
+                (while (re-search-backward "^[^❯\n]*❯" nil t)
+                    (when (my/vterm-prompt-has-command-p)
+                        (throw 'found t)))
+                (goto-char origin))))
+
+    (defun my/vterm-next-prompt ()
+        (interactive)
+        (let ((origin (point)))
+            (catch 'found
+                (while (progn (forward-line 1)
+                           (re-search-forward "^[^❯\n]*❯" nil t))
+                    (beginning-of-line)
+                    (when (my/vterm-prompt-has-command-p)
+                        (throw 'found t)))
+                (goto-char origin))))
+    (with-eval-after-load 'vterm
+        (define-key vterm-mode-map (kbd "C-c C-p") #'my/vterm-previous-prompt)
+        (define-key vterm-mode-map (kbd "C-c C-n") #'my/vterm-next-prompt)
+
+    (evil-define-key '(visual normal)
+        vterm-mode-map
+        (kbd "[[")
+        #'my/vterm-previous-prompt)
+
+    (evil-define-key '(visual normal)
+        vterm-mode-map
+        (kbd "]]")
+        #'my/vterm-next-prompt)))
 (use-package multi-vterm
     :straight t
     :after vterm
@@ -1509,6 +1558,7 @@ folder, otherwise delete a word"
 (define-key evil-motion-state-map (kbd "\\") 'my-evil-leader-map)
 
 ;; Bind commands under the new leader key
+(define-key my-evil-leader-map (kbd "a") 'agent-shell)   ;; Agent-shell
 (define-key my-evil-leader-map (kbd "w") 'evil-write)   ;; Save
 (define-key my-evil-leader-map (kbd "d") 'evil-delete-buffer) ;; Kill buffer
 (define-key my-evil-leader-map (kbd "b") 'consult-persp-buffer) ;; Switch buffer in persp
@@ -1587,7 +1637,7 @@ because compile mode is too slow"
 
 
 (use-package text-mode ;;
-    :mode (".tridactylrc"))  ;;
+    :mode (".tridactylrc" ".gitignore"))  ;;
 
 (use-package eros
   :straight t
@@ -1602,6 +1652,10 @@ because compile mode is too slow"
   :straight t
   :mode (("Caddyfile\\'" . caddyfile-mode)
          ("caddy\\.conf\\'" . caddyfile-mode)))
+(use-package dotenv-mode
+    :straight t
+    :mode (("\\.env\\..*\\'" . dotenv-mode)))
+    
 
 (use-package lua-mode
   :straight t
@@ -1974,7 +2028,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 ;;   (require 'dap-node)
 ;;   (dap-node-setup))
 
-(let* ((auth (auth-source-search :host "api.github.com" :user "S0mbr3^forge"))
+(let* ((auth (auth-source-search :host "api.github.com" :user "lejicore^forge"))
        (token (funcall (plist-get (car auth) :secret))))
   ;; Now 'token' contains your GitHub token, and you can use it in your code.
   )
@@ -2135,7 +2189,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 
   (setq org-todo-keywords
 	'((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d!)")
-	  (sequence "HABIT(h)" "|" "DONE(d!)")
+	  (sequence "HABIT(h)" "DONE")
 	  (sequence "BUYING(b1)" "|" "bought(B!)")
 	  (sequence "BACKLOG(b)" "PLAN(p)" "READY(r)" "ACTIVE(a)" "REVIEW(v)" "WAIT(w@/!)" "HOLD(h)" "|" "COMPLETED(c)" "CANC(k@)")
 	  (sequence "A-PLAN()" "A-READY()" "A-ACTIVE()" "A-REVIEW()" "A-WAIT(@/!)" "A-HOLD()" "|" "A-COMPLETED(c)" "A-CANC(k@)")))
@@ -2174,7 +2228,8 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 	   ((agenda "" ((org-deadline-warning-days 7)))
 	    (todo "NEXT"
 		  ((org-agenda-overriding-header "Next Tasks")))
-	    (tags-todo "agenda/ACTIVE" ((org-agenda-overriding-header "Active Projects")))))
+	    (tags-todo "active" ((org-agenda-overriding-header "Active Projects")))))
+	    ;; (tags-todo "agenda/ACTIVE" ((org-agenda-overriding-header "Active Projects")))))
 
 	  ("h" "Habit Tasks"
 	   ((todo "HABIT"
@@ -2256,9 +2311,11 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 
   (setq org-capture-templates
 	`(("t" "Tasks / Projects")
-	  ("tc" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	  ("tc" "Task+file" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
 	   "* TODO %?\n  %U\n  %a\n  %i" :empty-lines 1)
 	  ("tt" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	   "* TODO %?\n  %U\n  %i" :empty-lines 1)
+	  ("tp" "GaulBOT" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "GaulBOT")
 	   "* TODO %?\n  %U\n  %i" :empty-lines 1)
 
 	  ("s" "Shopping / Projects")
@@ -2383,6 +2440,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
   (add-to-list 'org-structure-template-alist '("py" . "src python"))
   (add-to-list 'org-structure-template-alist '("cc" . "src C"))
   (add-to-list 'org-src-lang-modes '("yaml" . yaml-ts)) ;; Changing mode for org-edit-special C-c '
+  (add-to-list 'org-src-lang-modes '("typescript" . typescript-ts))
   )
 
 ;; Automatically tangle our Emacs.org config file when we save it
@@ -2674,6 +2732,7 @@ map)
 
 (use-package combobulate
   ;; :straight (combobulate :type git :host github :repo "mickeynp/combobulate")
+  :disabled t
   :custom
   ;; You can customize Combobulate's key prefix here.
   ;; Note that you may have to restart Emacs for this to take effect!
@@ -2806,20 +2865,30 @@ map)
            subtree-state
            git-msg ;;<-- Shows commit messages
            ))
-    (defun my/faster-dirvish-previews ()
-    "Disable intensive mode in file manager buffers."
-    (when (or (derived-mode-p 'dired-mode)
-	      (derived-mode-p 'dirvish-mode)
-	      (string-match-p "PREVIEW ::" (buffer-name)))
-	(setq-local global-treesit-auto-mode nil)
-	(treesit-auto-mode -1)
-	lsp-treemacs-sync-mode
-	lsp-headerline-breadcrumb-mode
-	lsp-ui-mode))
+    (defun my/dirvish-preview-without-treesit-remap (orig-fn &rest args)
+      "Build Dirvish previews without `treesit-auto' major-mode remapping."
+      (if (and (bound-and-true-p global-treesit-auto-mode)
+               (advice-member-p #'treesit-auto--set-major-remap #'set-auto-mode-0))
+          (unwind-protect
+              (progn
+                (advice-remove #'set-auto-mode-0 #'treesit-auto--set-major-remap)
+                (apply orig-fn args))
+            (advice-add #'set-auto-mode-0 :before #'treesit-auto--set-major-remap))
+        (apply orig-fn args)))
 
-(add-hook 'after-change-major-mode-hook 
-    #'my/faster-dirvish-previews
-    :append)  ; APPEND is crucial - runs after mode activation
+    (defun my/dirvish-preview-setup ()
+      "Disable heavy UI extras in Dirvish preview buffers."
+      (when (string-match-p "PREVIEW ::" (buffer-name))
+        (when (bound-and-true-p treesit-auto-mode)
+          (treesit-auto-mode -1))
+        (when (bound-and-true-p lsp-ui-mode)
+          (lsp-ui-mode -1))
+        (when (bound-and-true-p lsp-headerline-breadcrumb-mode)
+          (lsp-headerline-breadcrumb-mode -1))))
+
+    (advice-add 'dirvish--preview-file-maybe-truncate :around
+                #'my/dirvish-preview-without-treesit-remap)
+    (add-hook 'dirvish-preview-setup-hook #'my/dirvish-preview-setup)
 
     (global-set-key (kbd "C-c d") 'dirvish)
       (evil-collection-define-key 'normal 'dired-mode-map
@@ -3324,18 +3393,32 @@ map)
  :category "emacs")
 
 (use-package mcp-server
-  :straight (:type git :host github :repo "rhblind/emacs-mcp-server"
-             :files ("*.el" "tools/*.el" "mcp-wrapper.py" "mcp-wrapper.sh"))
-  :config
-  (add-hook 'emacs-startup-hook #'mcp-server-start-unix))
+    :straight (:type git :host github :repo "rhblind/emacs-mcp-server"
+                  :files ("*.el" "tools/*.el" "mcp-wrapper.py" "mcp-wrapper.sh"))
+    :config
+    (add-hook 'emacs-startup-hook #'mcp-server-start-unix)
+    :custom
+    (mcp-server-security-prompt-for-permissions t))
 
 (use-package agent-shell
     :straight t
+    :config
+    (with-eval-after-load 'evil
+        (evil-define-key '(visual insert normal)
+        global-map
+        (kbd "C-1")
+        #'agent-shell-toggle))
     :custom
     (agent-shell-mistral-authentication
         (agent-shell-mistral-make-authentication :api-key #'my-mistral-api-key))
     (agent-shell-openai-authentication
-      (agent-shell-openai-make-authentication :login t)))
+        (agent-shell-openai-make-authentication :login t))
+    (agent-shell-mcp-servers
+      `(((name . "emacs")
+         (command . "python3")
+         (args . (,(expand-file-name "~/.cache/emacs/straight/repos/emacs-mcp-server/mcp-wrapper.py")
+                  ,(expand-file-name "~/.cache/emacs/emacs-mcp-server.sock")))
+         (env . ())))))
   (defun my-mistral-api-key ()
     (let ((auth-info (auth-source-search
 		      :host "api.mistral.ai"
@@ -3346,7 +3429,11 @@ map)
 	(error "Mistral AI API key not found in .authinfo"))))
 
 (ox/leader-keys
-    "a" '(agent-shell :which-key "agent-shell"))
+    "a" '(:ignore t :which-key "agent-shell")
+    "as" '(agent-shell :which-key "agent-shell-send-screenshot")
+    "aa" '(agent-shell :which-key "agent-shell")
+    "at" '(agent-shell :which-key "agent-toggle")
+    "an" '(agent-shell-new :which-key "agent-shell-new"))
 
 (use-package package-build
   :straight t)
@@ -3382,7 +3469,7 @@ map)
 
 (defun my/darwin-rebuild ()
     (interactive)
-(async-shell-command "nd"))
+(async-shell-command "dr"))
 (defun my/home-manager-switch ()
     (interactive)
 (async-shell-command "hms"))
@@ -3390,6 +3477,16 @@ map)
     "d" '(:ignore t :which-key "nix-darwin")
     "dr" '(my/darwin-rebuild :which-key "darwin-rebuild")
     "dh" '(my/home-manager-switch :which-key "home-manager-switch"))
+
+(use-package ox-gfm
+    :straight t)
+(use-package grip-mode
+    :straight t
+  :config (setq grip-command 'auto)
+  :bind ((:map markdown-mode-command-map
+          ("g" . grip-mode))
+         (:map markdown-ts-mode-map
+          ("C-c C-c g" . grip-mode))))
 
 ;; Make gc pauses faster by decreasubg tge threshold.
 ;;(setq gc-cons-threshold (* 2 1000 000))
