@@ -2528,7 +2528,8 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 	   ((agenda "" ((org-deadline-warning-days 7)))
 	    (todo "NEXT"
 		  ((org-agenda-overriding-header "Next Tasks")))
-	    (tags-todo "agenda/ACTIVE" ((org-agenda-overriding-header "Active Projects")))))
+	    (tags-todo "active" ((org-agenda-overriding-header "Active Projects")))))
+	    ;; (tags-todo "agenda/ACTIVE" ((org-agenda-overriding-header "Active Projects")))))
 
 	  ("h" "Habit Tasks"
 	   ((todo "HABIT"
