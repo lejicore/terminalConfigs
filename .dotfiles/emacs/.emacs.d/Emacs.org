@@ -1349,6 +1349,8 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
 ;;(setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *"))
 #+end_src
 ** vterm
+using (setq term-next-prompt "prompt") is not recommanded it does follow empty lines
+the correct way of doing it is to create our own prompt regexp system see: [[(defun my/vterm-next-prompt][my-vterm-next-prompt]]
 #+begin_src emacs-lisp
 (use-package vterm
     :straight t
@@ -1363,9 +1365,9 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
     (with-eval-after-load 'evil
         ;; Important: bind in Evil's insert state for vterm
         (evil-define-key '(insert) vterm-mode-map
-        (kbd "C-h") #'vterm-send-backspace
-        (kbd "<backspace>") #'vterm-send-backspace
-        (kbd "DEL") #'vterm-send-backspace))
+            (kbd "C-h") #'vterm-send-backspace
+            (kbd "<backspace>") #'vterm-send-backspace
+            (kbd "DEL") #'vterm-send-backspace))
 
     ;; Remove mappings of alt+numbers from vterm
     (dolist (key '("M-1" "M-2" "M-3" "M-4" "M-5" "M-6" "M-7" "M-8" "M-9" "M-0"))
@@ -1384,12 +1386,52 @@ To help keeping in the 80 character long for elisp we wrap the code using auto-f
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
 
     (setq vterm-max-scrollback 10000)
-    (setq term-prompt-regexp "^[^❯\n]*[❯] *"))
-;;(setq term-prompt-regexp "^[^❯\n]*[.*❯] .*"))
-;;(setq term-prompt-regexp "^[^❯\n]*[❯] *"))
-;;(setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *"))
-;; :hook (vterm-mode . (lambda ()
-;; 			(evil-emacs-state))))
+    ;;(setq term-prompt-regexp "^[^❯\n]*[❯] *") ;;OUTDATED
+    ;;(setq term-prompt-regexp "^[^╰─❯\n]*[╰─❯] *"))
+    ;;(setq term-prompt-regexp "^[^❯\n]*[.*❯] .*"))
+    ;;(setq term-prompt-regexp "^[^❯\n]*[❯] *"))
+    ;;(setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *"))
+    ;; :hook (vterm-mode . (lambda ()
+    ;; 			(evil-emacs-state))))
+
+    (defun my/vterm-prompt-has-command-p ()
+        "Return t if the line at point has a command after the prompt symbol."
+        (save-excursion
+            (beginning-of-line)
+            (looking-at "^[^❯\n]*❯ +[^ \n]")))
+
+    (defun my/vterm-previous-prompt ()
+        (interactive)
+        (let ((origin (point)))
+            (catch 'found
+                (while (re-search-backward "^[^❯\n]*❯" nil t)
+                    (when (my/vterm-prompt-has-command-p)
+                        (throw 'found t)))
+                (goto-char origin))))
+
+    (defun my/vterm-next-prompt ()
+        (interactive)
+        (let ((origin (point)))
+            (catch 'found
+                (while (progn (forward-line 1)
+                           (re-search-forward "^[^❯\n]*❯" nil t))
+                    (beginning-of-line)
+                    (when (my/vterm-prompt-has-command-p)
+                        (throw 'found t)))
+                (goto-char origin))))
+    (with-eval-after-load 'vterm
+        (define-key vterm-mode-map (kbd "C-c C-p") #'my/vterm-previous-prompt)
+        (define-key vterm-mode-map (kbd "C-c C-n") #'my/vterm-next-prompt)
+
+    (evil-define-key '(visual normal)
+        vterm-mode-map
+        (kbd "[[")
+        #'my/vterm-previous-prompt)
+
+    (evil-define-key '(visual normal)
+        vterm-mode-map
+        (kbd "]]")
+        #'my/vterm-next-prompt)))
 (use-package multi-vterm
     :straight t
     :after vterm
