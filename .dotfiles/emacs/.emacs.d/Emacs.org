@@ -3949,7 +3949,7 @@ Tools are grouped into modules. The main library just sets up loading and unload
     "as" '(agent-shell :which-key "agent-shell-send-screenshot")
     "aa" '(agent-shell :which-key "agent-shell")
     "at" '(agent-shell :which-key "agent-toggle")
-    "an" '(agent-shell-new :which-key "agent-shell-new"))
+    "an" '(agent-shell-new-shell :which-key "agent-shell-new-shell"))
 #+end_src
 * package creation
 #+begin_src emacs-lisp
