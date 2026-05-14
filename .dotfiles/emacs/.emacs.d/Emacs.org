@@ -3437,16 +3437,66 @@ We are using consult-dash as an ui-front end to parse dash-docs
 
 * Updates
 #+begin_src emacs-lisp
-(use-package auto-package-update
-  :straight t
-  :defer 0
-  :custom
-  (auto-package-update-interval 7)
-  (auto-package-update-prompt-before-update t)
-  (auto-package-update-hide-results t)
-  :config
-  (auto-package-update-maybe)
-  (auto-package-update-at-time "09:00"))
+(defgroup ox/straight-update nil
+  "Lightweight scheduled updates for straight.el."
+  :group 'convenience)
+
+(defcustom ox/straight-update-interval-days 7
+  "Number of days between straight update prompts."
+  :type 'integer
+  :group 'ox/straight-update)
+
+(defcustom ox/straight-update-prompt-time "09:00"
+  "Time of day when Emacs should prompt for straight updates."
+  :type 'string
+  :group 'ox/straight-update)
+
+(defcustom ox/straight-update-prompt-before-update t
+  "Whether to ask before running straight updates."
+  :type 'boolean
+  :group 'ox/straight-update)
+
+(defvar ox/straight-update-last-run-file
+  (expand-file-name ".last-straight-update" user-emacs-directory))
+
+(defun ox/straight-update-last-run-time ()
+  "Return the last straight update time, or nil if never recorded."
+  (when (file-exists-p ox/straight-update-last-run-file)
+    (with-temp-buffer
+      (insert-file-contents ox/straight-update-last-run-file)
+      (let ((value (string-trim (buffer-string))))
+        (unless (string-empty-p value)
+          (date-to-time value))))))
+
+(defun ox/straight-update-record-run ()
+  "Persist the current time as the last straight update run."
+  (with-temp-file ox/straight-update-last-run-file
+    (insert (format-time-string "%FT%T%z"))))
+
+(defun ox/straight-update-due-p ()
+  "Return non-nil when a straight update prompt is due."
+  (let ((last-run (ox/straight-update-last-run-time)))
+    (or (null last-run)
+        (>= (float-time (time-subtract (current-time) last-run))
+            (* ox/straight-update-interval-days 24 60 60)))))
+
+(defun ox/straight-update-all ()
+  "Update all straight packages without involving package.el."
+  (interactive)
+  (straight-pull-all)
+  (straight-rebuild-all)
+  (ox/straight-update-record-run))
+
+(defun ox/straight-update-maybe ()
+  "Prompt for a straight update when the configured interval has elapsed."
+  (interactive)
+  (when (ox/straight-update-due-p)
+    (when (or (not ox/straight-update-prompt-before-update)
+              (y-or-n-p "Update straight packages now? "))
+      (ox/straight-update-all))))
+
+(add-hook 'emacs-startup-hook #'ox/straight-update-maybe)
+(run-at-time ox/straight-update-prompt-time (* 24 60 60) #'ox/straight-update-maybe)
 #+end_src
 * PowerShell Attempt Configuration
 
