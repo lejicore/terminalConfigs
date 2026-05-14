@@ -718,7 +718,7 @@ It can also add projects on the fly with the Add project option
 (savehist-mode 1)
 (setq desktop-dirname "~/.cache/emacs/var/desktop") ; Set directory for saving/restoring
 (setq desktop-path (list desktop-dirname)) ; Ensure Emacs looks in this path
-(desktop-save-mode 1)
+(setq desktop-save-mode nil)
 ;; (add-to-list 'desktop-locals-to-save 'evil-markers-alist) ;; Make evil marks saved accross working sessions
 ;; (add-to-list 'desktop-globals-to-save 'evil-markers-alist) ;; Make evil marks saved accross working sessions
 
