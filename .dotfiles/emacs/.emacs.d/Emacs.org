@@ -3876,22 +3876,33 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
   (my-groq-setup))
 #+end_src
 ** gptel-tools
+*Introduction*
+
+This repository contains multiple tools for LLM use in Emacs. The goal is to support all modes implementing a similar tool format. Currently those are:
+
+- [[https://github.com/karthink/gptel][gptel]]
+- [[https://github.com/ahyatt/llm][llm]]
+- [[https://github.com/manzaltu/claude-code-ide.el][claude-code-ide]]
+
+Tools are grouped into modules. The main library just sets up loading and unloading. The following screenshot shows a session with safe and maybe-safe tools from the emacs and buffer modules loaded:
 #+begin_src emacs-lisp
-(add-to-list 'load-path "~/git_builds/gptel-tool-library")
-(require 'gptel-tool-library)
-(dolist (module '("bbdb" "buffer" "elisp" "emacs" "gnus" "os"))
-  (gptel-tool-library-load-module module))
-
-(gptel-make-tool
- :function #'dired
- :name  "open_dired"
- :description "Use dired to show files in path. After calling this tool, stop. Then continue fulfilling user's request."
- :args (list '(:name "path"
-                     :type string
-                     :description "The path to show files."))
- :category "emacs")
-
-
+(use-package eai-tool-library
+  :straight '(eai-tool-library :host github
+		      :repo "aard-fi/eai-tool-library"
+		      :branch "master")
+    :after gptel
+    :config
+  (dolist (module '("bbdb" "buffer" "elisp" "emacs" "gnus" "os"))
+    (eai-tool-library-load-module module))
+  (add-to-list 'eai-tool-library-buffer-tools
+               (gptel-make-tool
+                :function #'dired
+                :name "open_dired"
+                :description "Use dired to show files in path. After calling this tool, stop. Then continue fulfilling user's request."
+                :args (list '(:name "path"
+                              :type string
+                              :description "The path to show files."))
+                :category "emacs")))
 #+end_src
 * mcp-server
 #+begin_src emacs-lisp
