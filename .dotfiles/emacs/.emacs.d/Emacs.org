@@ -1152,10 +1152,12 @@ folder, otherwise delete a word"
   (evil-define-key '(normal insert visual) eshell-mode-map (kbd "C-r") 'counsel-esh-history)
   ;; Add preview to consult-find
   (consult-customize consult-find :state (consult--file-preview))
+  (consult-customize
+   consult-theme
+   :preview-key '(:debounce 0.2 any))
   (ox/leader-keys
     "t" '(:ignore t :which-key "toggles")
-    "tt" '(consult-theme :which-key "Load themes"))
-  (consult-preview-at-point-mode))
+    "tt" '(consult-theme :which-key "Load themes")))
 
 (use-package consult-lsp
   :straight t
