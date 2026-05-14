@@ -3312,7 +3312,7 @@ We are using consult-dash as an ui-front end to parse dash-docs
 (defun my/dired-check-features ()
   "Check if ranger and dirvish are loaded"
   (or (featurep 'ranger)
-      (featurep' dirvish)))
+      (featurep 'dirvish)))
 
     (use-package dired-hide-dotfiles
       :unless (featurep 'ranger)
