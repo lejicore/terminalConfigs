@@ -26,6 +26,10 @@
     extraPackages = [ pkgs.imagemagick ];
   };
   programs.home-manager.enable = true;
+  programs.git = {
+    enable = true;
+    extraConfig.core.excludesfile = "${config.home.homeDirectory}/.gitignore_global";
+  };
   programs.zsh.enable = false;
 
   home.packages = with pkgs; [
@@ -49,6 +53,18 @@
     ".emacs.d" = {
       source = ../emacs/.emacs.d;
     };
+    ".gitignore_global".text = ''
+      .DS_Store
+      .AppleDouble
+      .LSOverride
+      Thumbs.db
+      /.agent-shell/
+      Desktop.ini
+      *~
+      *.swp
+      *.swo
+      .direnv/
+    '';
     ".config/ueberzugpp" = {
       source = ../ueberzugpp/.config/ueberzugpp;
     };
