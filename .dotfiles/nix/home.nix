@@ -28,7 +28,7 @@
   programs.home-manager.enable = true;
   programs.git = {
     enable = true;
-    extraConfig.core.excludesfile = "${config.home.homeDirectory}/.gitignore_global";
+    settings.core.excludesfile = "${config.home.homeDirectory}/.gitignore_global";
   };
   programs.zsh.enable = false;
 
