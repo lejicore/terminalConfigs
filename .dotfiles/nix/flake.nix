@@ -87,6 +87,7 @@
         config = pkg-config;
         overlays = common-overlays;
       };
+      darwin-system = darwin-pkgs.stdenv.hostPlatform.system;
       # We import our separate "sops.nix" module, which defines the secret "user"
       sopsModule = import ./sops.nix { inherit inputs; };
       secrets = import ./secrets.nix {
@@ -132,7 +133,7 @@
           {
             nix.settings.plugin-files = [
               #"${nix-rage.packages.${darwin-pkgs.system}.default}/lib/libnix_rage.dylib"
-              "${nix-rage.packages.${darwin-pkgs.system}.default}/lib/libnix_rage${darwin-pkgs.stdenv.hostPlatform.extensions.sharedLibrary}"
+              "${nix-rage.packages.${darwin-system}.default}/lib/libnix_rage${darwin-pkgs.stdenv.hostPlatform.extensions.sharedLibrary}"
               #"/Users/Nebj/test/libnix_rage.dylib"
             ];
           }
