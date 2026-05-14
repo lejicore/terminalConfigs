@@ -123,6 +123,8 @@ Uncomment [[;;(advice-add 'garbage-collect][;;(advice-add 'garbage...]] if you w
 ;;(setq use-package-always-defer t)
 ;;(setq use-package-always-ensure nil)
 (setq package-enable-at-startup nil)
+(setq straight-recipes-nongnu-elpa-url
+      "https://git.savannah.gnu.org/git/emacs/nongnu.git")
 (setq package-native-compile t)
 ;;(setq use-package-compute-statistics t)
 ;;(setq use-package-verbose t)
