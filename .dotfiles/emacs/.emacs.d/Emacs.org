@@ -3802,6 +3802,7 @@ Warning: This plugin is unofficial and based on code and binaries provided by ht
 (use-package gptel
   :straight t
   :after general
+  :commands (gptel gptel-menu gptel-send)
   :config
     (setq gptel-default-mode #'org-mode)
   (ox/leader-keys
