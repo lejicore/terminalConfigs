@@ -3353,23 +3353,23 @@ We are using consult-dash as an ui-front end to parse dash-docs
 (setq tramp-histfile-override nil) ;; Don't override zsh history in ssh
 (add-to-list 'tramp-connection-properties
              (list (regexp-quote "/sshx:ledeb:")
-                   "remote-shell" "/usr/bin/zsh"))
+                   "remote-shell" "/bin/zsh"))
 (add-to-list 'tramp-connection-properties
-             (list (regexp-quote "/ssh:ledeb:")
-                   "remote-shell" "/usr/bin/zsh"))
+             (list (regexp-quote "/sshx:ledeb:")
+                   "remote-shell" "/bin/zsh"))
 (setq vterm-tramp-shells '(("docker" "/bin/sh")
-			   ("ssh" "/usr/bin/zsh")))
+			   ("sshx" "/usr/bin/zsh")))
 (defun ox/ledeb-vterm ()
   "Open vterm in ledeb server"
   (interactive)
   (print "salut")
-  (let ((default-directory "/ssh:ledeb:"))
+  (let ((default-directory "/sshx:ledeb:~"))
     (multi-vterm)))
 
 (defun ox/ledeb-dired ()
   "Open dired in ledeb server"
   (interactive)
-    (dired "/ssh:ledeb:"))
+    (dired "/sshx:ledeb:~"))
 #+end_src
 * Gnuplot mode
 #+begin_src emacs-lisp
