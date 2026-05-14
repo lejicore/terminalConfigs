@@ -78,6 +78,7 @@
 (setq ox/enable-cape t )
 (setq initial-scratch-message ";; -*- lexical-binding: nil -*-\n;; This buffer is for text that is not saved, and for Lisp evaluation.\n;; To create a file, visit it with `\\[find-file]' and enter text in its buffer.\n\n")
 
+
 (let ((bootstrap-file
        (expand-file-name "straight/repos/straight.el/bootstrap.el" user-emacs-directory))
       (bootstrap-version 6))
@@ -96,6 +97,8 @@
 ;;(setq use-package-always-defer t)
 ;;(setq use-package-always-ensure nil)
 (setq package-enable-at-startup nil)
+(setq straight-recipes-nongnu-elpa-url
+      "https://git.savannah.gnu.org/git/emacs/nongnu.git")
 (setq package-native-compile t)
 ;;(setq use-package-compute-statistics t)
 ;;(setq use-package-verbose t)
@@ -185,6 +188,7 @@
 ;;                                                                   ;;
 ;; (add-hook 'after-load-theme-hook #'ox/fix-doom-gnus-face-cycle)   ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 
 (use-package doom-modeline
   :straight t
@@ -316,6 +320,7 @@
 
   ;;(require 'eaf-pyqterminal)
   ;;(require 'eaf-pdf-viewer)
+
 
   (use-package persp-mode
     :straight t
@@ -648,7 +653,7 @@
 (savehist-mode 1)
 (setq desktop-dirname "~/.cache/emacs/var/desktop") ; Set directory for saving/restoring
 (setq desktop-path (list desktop-dirname)) ; Ensure Emacs looks in this path
-(desktop-save-mode 1)
+(setq desktop-save-mode nil)
 ;; (add-to-list 'desktop-locals-to-save 'evil-markers-alist) ;; Make evil marks saved accross working sessions
 ;; (add-to-list 'desktop-globals-to-save 'evil-markers-alist) ;; Make evil marks saved accross working sessions
 
@@ -795,7 +800,7 @@ folder, otherwise delete a word"
 (defun my-vertico-alt-done ()
   "Mimic the behavior of `ivy-alt-done' in Vertico."
   (interactive)
-  (if-let ((file (vertico--candidate)))
+  (if-let* ((file (vertico--candidate)))
       (if (file-directory-p file)
 	  (vertico-insert)
 	(vertico-exit))
@@ -951,10 +956,12 @@ folder, otherwise delete a word"
   (evil-define-key '(normal insert visual) eshell-mode-map (kbd "C-r") 'counsel-esh-history)
   ;; Add preview to consult-find
   (consult-customize consult-find :state (consult--file-preview))
+  (consult-customize
+   consult-theme
+   :preview-key '(:debounce 0.2 any))
   (ox/leader-keys
     "t" '(:ignore t :which-key "toggles")
-    "tt" '(consult-theme :which-key "Load themes"))
-  (consult-preview-at-point-mode))
+    "tt" '(consult-theme :which-key "Load themes")))
 
 (use-package consult-lsp
   :straight t
@@ -1024,6 +1031,7 @@ folder, otherwise delete a word"
   :demand t
   :hook
   (embark-collect-mode . embark-consult-preview-minor-mode))
+
 
 (use-package wgrep
   :straight t) ;; edit grep searches
@@ -1618,6 +1626,8 @@ folder, otherwise delete a word"
     (setq projectile-project-search-path `(,my-project-path)))
   (setq projectile-switch-projection-action #'projectile-dired))
 
+
+
 (defun my/crunner ()
   "Make and Run a C program on a vterm buffer based on the makefile recipies
 because compile mode is too slow"
@@ -1826,6 +1836,10 @@ because compile mode is too slow"
 		    :keymaps 'prog-mode-map
 		    "SPC fl" 'consult-flycheck))
 
+(defun ox/org-flycheck-setup ()
+  "Disable Flycheck's incompatible `org-lint' checker on Emacs 31."
+  (setq-local flycheck-disabled-checkers '(org-lint)))
+
 (defun ox/lsp-mode-setup ()
   (setq lsp-headerline-breadcrumb-segments '(path-up-to-project file symbols))
   (lsp-headerline-breadcrumb-mode))
@@ -2022,6 +2036,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
       (add-hook 'persp-activated-functions
                 #'ox/treemacs-remove-window-after-persp-activation))))
 
+
 ;; (use-package dap-mode
 ;;   :straight t
 ;;   :custom
@@ -2057,6 +2072,13 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 :straight t
 :after magit)
 
+(with-eval-after-load 'forge
+  (define-key magit-mode-map (kbd "N") #'forge-dispatch))
+
+(with-eval-after-load 'evil-collection-forge
+  (evil-define-key '(normal motion) magit-mode-map
+    (kbd "N") #'forge-dispatch))
+
 (defun my/vc-refresh-after-burying-magit (&rest args)
   "Refresh VC state after magit-status."
   (vc-refresh-state))
@@ -2086,6 +2108,9 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 
 ;; (add-hook 'comint-output-filter-functions 'my/vc-refresh-state-after-shell-command)
 
+
+
+
 (use-package mixed-pitch
   :straight t)
 (use-package valign
@@ -2110,6 +2135,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
   :commands (org-capture org-agenda)
   :hook ((org-mode . ox/org-mode-setup)
 	 (org-mode . ox/org-mode-init)
+	 (org-mode . ox/org-flycheck-setup)
 	 (org-mode . (lambda()
 		       (set-face-attribute 'org-table nil :inherit 'fixed-pitch)))
 	 (org-mode . (lambda () (org-superstar-mode 0))))
@@ -2811,6 +2837,9 @@ map)
     (when file-uri
       (eaf-open-browser file-uri))))
 
+
+
+
 (use-package devdocs
   :straight t
   :hook ((python-ts-mode . (lambda () (setq-local devdocs-current-docs '("python~3.12")))))
@@ -2818,6 +2847,8 @@ map)
   (defun ox/after-devdocs-lookup (&rest r)
   (delete-window))
   (advice-add #'devdocs-lookup :after 'ox/after-devdocs-lookup))
+
+
 
 ;; (use-package eww-lnum
 ;;   :straight t
@@ -2947,6 +2978,7 @@ map)
       (setq dired-open-extensions '(("png" . "feh")
 				    ("mkv" . "mpv"))))
 
+
 (require 'tramp)
 (use-package ssh-config-mode
   :straight t
@@ -3033,16 +3065,67 @@ map)
 
 ;; (advice-add 'compilation-filter :around #'my/advice-compilation-filter))
 
-(use-package auto-package-update
-  :straight t
-  :defer 0
-  :custom
-  (auto-package-update-interval 7)
-  (auto-package-update-prompt-before-update t)
-  (auto-package-update-hide-results t)
-  :config
-  (auto-package-update-maybe)
-  (auto-package-update-at-time "09:00"))
+
+(defgroup ox/straight-update nil
+  "Lightweight scheduled updates for straight.el."
+  :group 'convenience)
+
+(defcustom ox/straight-update-interval-days 7
+  "Number of days between straight update prompts."
+  :type 'integer
+  :group 'ox/straight-update)
+
+(defcustom ox/straight-update-prompt-time "09:00"
+  "Time of day when Emacs should prompt for straight updates."
+  :type 'string
+  :group 'ox/straight-update)
+
+(defcustom ox/straight-update-prompt-before-update t
+  "Whether to ask before running straight updates."
+  :type 'boolean
+  :group 'ox/straight-update)
+
+(defvar ox/straight-update-last-run-file
+  (expand-file-name ".last-straight-update" user-emacs-directory))
+
+(defun ox/straight-update-last-run-time ()
+  "Return the last straight update time, or nil if never recorded."
+  (when (file-exists-p ox/straight-update-last-run-file)
+    (with-temp-buffer
+      (insert-file-contents ox/straight-update-last-run-file)
+      (let ((value (string-trim (buffer-string))))
+        (unless (string-empty-p value)
+          (date-to-time value))))))
+
+(defun ox/straight-update-record-run ()
+  "Persist the current time as the last straight update run."
+  (with-temp-file ox/straight-update-last-run-file
+    (insert (format-time-string "%FT%T%z"))))
+
+(defun ox/straight-update-due-p ()
+  "Return non-nil when a straight update prompt is due."
+  (let ((last-run (ox/straight-update-last-run-time)))
+    (or (null last-run)
+        (>= (float-time (time-subtract (current-time) last-run))
+            (* ox/straight-update-interval-days 24 60 60)))))
+
+(defun ox/straight-update-all ()
+  "Update all straight packages without involving package.el."
+  (interactive)
+  (straight-pull-all)
+  (straight-rebuild-all)
+  (ox/straight-update-record-run))
+
+(defun ox/straight-update-maybe ()
+  "Prompt for a straight update when the configured interval has elapsed."
+  (interactive)
+  (when (ox/straight-update-due-p)
+    (when (or (not ox/straight-update-prompt-before-update)
+              (y-or-n-p "Update straight packages now? "))
+      (ox/straight-update-all))))
+
+(add-hook 'emacs-startup-hook #'ox/straight-update-maybe)
+(run-at-time ox/straight-update-prompt-time (* 24 60 60) #'ox/straight-update-maybe)
 
 ;; Set PowerShell as default shell
 ;; (setq explicit-shell-file-name "C:/Program Files/PowerShell/7-preview/pw;; sh.exe")
@@ -3090,6 +3173,7 @@ map)
   ;;        (lambda ()
     ;;        (define-key comint-mode-map (kbd "<up>") 'comint-previous-input)
       ;;      (define-key comint-mode-map (kbd "<down>") 'comint-next-input)))
+
 
 (use-package chess
 :straight t)
@@ -3310,6 +3394,7 @@ map)
 (use-package gptel
   :straight t
   :after general
+  :commands (gptel gptel-menu gptel-send)
   :config
     (setq gptel-default-mode #'org-mode)
   (ox/leader-keys
@@ -3382,19 +3467,23 @@ map)
 	    :models '(deepseek/deepseek-chat-v3.1:free deepseek/deepseek-r1-0528:free))))
   (my-groq-setup))
 
-(add-to-list 'load-path "~/git_builds/gptel-tool-library")
-(require 'gptel-tool-library)
-(dolist (module '("bbdb" "buffer" "elisp" "emacs" "gnus" "os"))
-  (gptel-tool-library-load-module module))
-
-(gptel-make-tool
- :function #'dired
- :name  "open_dired"
- :description "Use dired to show files in path. After calling this tool, stop. Then continue fulfilling user's request."
- :args (list '(:name "path"
-                     :type string
-                     :description "The path to show files."))
- :category "emacs")
+(use-package eai-tool-library
+  :straight '(eai-tool-library :host github
+		      :repo "aard-fi/eai-tool-library"
+		      :branch "master")
+    :after gptel
+    :config
+  (dolist (module '("bbdb" "buffer" "elisp" "emacs" "gnus" "os"))
+    (eai-tool-library-load-module module))
+  (add-to-list 'eai-tool-library-buffer-tools
+               (gptel-make-tool
+                :function #'dired
+                :name "open_dired"
+                :description "Use dired to show files in path. After calling this tool, stop. Then continue fulfilling user's request."
+                :args (list '(:name "path"
+                              :type string
+                              :description "The path to show files."))
+                :category "emacs")))
 
 (use-package mcp-server
     :straight (:type git :host github :repo "rhblind/emacs-mcp-server"
@@ -3440,15 +3529,17 @@ map)
     "an" '(agent-shell-new :which-key "agent-shell-new"))
 
 (use-package package-build
-  :straight t)
+  :straight t
+  :defer t)
 
 (use-package package-lint
-  :straight t)
+  :straight t
+  :defer t)
 
 (use-package flycheck-package
   :straight t
-  :config
-  :after flycheck)
+  :after flycheck
+  :defer t)
 
 (use-package sops
   :straight t
