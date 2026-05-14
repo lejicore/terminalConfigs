@@ -3951,9 +3951,19 @@ Tools are grouped into modules. The main library just sets up loading and unload
     "at" '(agent-shell :which-key "agent-toggle")
     "an" '(agent-shell-new-shell :which-key "agent-shell-new-shell"))
 
+(defun ox/agent-shell-apply-evil-ret ()
+  "Make Enter submit prompts in existing and future `agent-shell' buffers."
+  (when (and (bound-and-true-p evil-local-mode)
+             (derived-mode-p 'agent-shell-mode))
+    (evil-local-set-key 'insert (kbd "RET") #'shell-maker-submit)
+    (evil-local-set-key 'insert (kbd "<return>") #'shell-maker-submit)
+    (evil-local-set-key 'insert (kbd "C-m") #'shell-maker-submit)))
+
 (with-eval-after-load 'agent-shell
-  (with-eval-after-load 'evil
-    (evil-define-key 'insert agent-shell-mode-map (kbd "RET") #'shell-maker-submit)))
+  (add-hook 'agent-shell-mode-hook #'ox/agent-shell-apply-evil-ret)
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (ox/agent-shell-apply-evil-ret))))
 #+end_src
 * package creation
 #+begin_src emacs-lisp
