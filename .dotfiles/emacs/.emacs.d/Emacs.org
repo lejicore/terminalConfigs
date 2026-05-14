@@ -2103,6 +2103,10 @@ because compile mode is too slow"
   :general (:states '(normal visual)
 		    :keymaps 'prog-mode-map
 		    "SPC fl" 'consult-flycheck))
+
+(defun ox/org-flycheck-setup ()
+  "Disable Flycheck's incompatible `org-lint' checker on Emacs 31."
+  (setq-local flycheck-disabled-checkers '(org-lint)))
 #+end_src
 * Language Servers
 [[https://github.com/blahgeek/emacs-lsp-booster][emacs-lsp-booster]] increase performance by providing a wrapper-executable around lsp-programs.
@@ -2414,6 +2418,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
   :commands (org-capture org-agenda)
   :hook ((org-mode . ox/org-mode-setup)
 	 (org-mode . ox/org-mode-init)
+	 (org-mode . ox/org-flycheck-setup)
 	 (org-mode . (lambda()
 		       (set-face-attribute 'org-table nil :inherit 'fixed-pitch)))
 	 (org-mode . (lambda () (org-superstar-mode 0))))
