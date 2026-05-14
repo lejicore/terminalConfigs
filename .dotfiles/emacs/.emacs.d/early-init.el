@@ -4,3 +4,6 @@
 ;; `lexical-binding' cookie. Many third-party straight packages still omit it,
 ;; so keep the old default behavior without spamming startup warnings.
 (setq internal--get-default-lexical-binding-function #'ignore)
+
+;; Very early, before magit/forge/evil-collection-forge load.
+(setq forge-add-default-bindings nil)

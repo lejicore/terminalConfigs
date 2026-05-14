@@ -2344,6 +2344,11 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 ;; (pinentry-start)
 #+end_src
 * Magit
+Forced to remove forge keybinding in [[file:early-init.el::(setq forge-add-default-bindings nil][early-init.el]] 
+Cannot insert ("N" "Forge" forge-dispatch) into magit-dispatch; o not found
+Setting ‘forge-add-default-bindings’ to nil in ‘evil-collection-forge-setup’.
+
+We then had to define the =N= keybinding again once [[(with-eval-after-load 'forge][forge]] and [[(with-eval-after-load 'evil-collection-forge][evil-collection-forge]] is loaded.
 #+begin_src emacs-lisp
 ;; We are making magit getting the full buffer size
 (use-package magit
@@ -2356,6 +2361,13 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 (use-package forge
 :straight t
 :after magit)
+
+(with-eval-after-load 'forge
+  (define-key magit-mode-map (kbd "N") #'forge-dispatch))
+
+(with-eval-after-load 'evil-collection-forge
+  (evil-define-key '(normal motion) magit-mode-map
+    (kbd "N") #'forge-dispatch))
 
 (defun my/vc-refresh-after-burying-magit (&rest args)
   "Refresh VC state after magit-status."
