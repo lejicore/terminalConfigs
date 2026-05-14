@@ -3950,6 +3950,10 @@ Tools are grouped into modules. The main library just sets up loading and unload
     "aa" '(agent-shell :which-key "agent-shell")
     "at" '(agent-shell :which-key "agent-toggle")
     "an" '(agent-shell-new-shell :which-key "agent-shell-new-shell"))
+
+(with-eval-after-load 'agent-shell
+  (with-eval-after-load 'evil
+    (evil-define-key 'insert agent-shell-mode-map (kbd "RET") #'shell-maker-submit)))
 #+end_src
 * package creation
 #+begin_src emacs-lisp
