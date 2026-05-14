@@ -3954,15 +3954,17 @@ Tools are grouped into modules. The main library just sets up loading and unload
 * package creation
 #+begin_src emacs-lisp
 (use-package package-build
-  :straight t)
+  :straight t
+  :defer t)
 
 (use-package package-lint
-  :straight t)
+  :straight t
+  :defer t)
 
 (use-package flycheck-package
   :straight t
-  :config
-  :after flycheck)
+  :after flycheck
+  :defer t)
 #+end_src
 * Encryption
 #+begin_src emacs-lisp
