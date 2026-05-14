@@ -996,7 +996,7 @@ folder, otherwise delete a word"
 (defun my-vertico-alt-done ()
   "Mimic the behavior of `ivy-alt-done' in Vertico."
   (interactive)
-  (if-let ((file (vertico--candidate)))
+  (if-let* ((file (vertico--candidate)))
       (if (file-directory-p file)
 	  (vertico-insert)
 	(vertico-exit))
