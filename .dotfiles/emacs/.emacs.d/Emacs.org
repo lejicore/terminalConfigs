@@ -1015,7 +1015,7 @@ folder, otherwise delete a word"
 	      ;;("C-f" . my-vertico-alt-done)
 	      ("TAB" . my-vertico-alt-done)
 	      ("?" . minibuffer-completion-help)
-	      ("RET" . minibuffer-force-complete-and-exit)
+	      ("RET" . vertico-exit)
 	      ;;("M-TAB" . minibuffer-complete)
 	      ("M-TAB" . vertico-exit-input)
 	      :map minibuffer-local-map
