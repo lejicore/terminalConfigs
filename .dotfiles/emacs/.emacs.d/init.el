@@ -3526,7 +3526,11 @@ map)
     "as" '(agent-shell :which-key "agent-shell-send-screenshot")
     "aa" '(agent-shell :which-key "agent-shell")
     "at" '(agent-shell :which-key "agent-toggle")
-    "an" '(agent-shell-new :which-key "agent-shell-new"))
+    "an" '(agent-shell-new-shell :which-key "agent-shell-new-shell"))
+
+(with-eval-after-load 'agent-shell
+  (with-eval-after-load 'evil
+    (evil-define-key 'insert agent-shell-mode-map (kbd "RET") #'shell-maker-submit)))
 
 (use-package package-build
   :straight t
