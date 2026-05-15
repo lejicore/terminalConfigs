@@ -43,14 +43,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1776666014,
-        "narHash": "sha256-tWH/+ifTdSzbWwrdteycoPwLu1nHAcA0xiZw5MtMEkY=",
-        "path": "/Users/nebj/test/darwin-networking",
-        "type": "path"
+        "lastModified": 1778790869,
+        "narHash": "sha256-STFPgg+lzlndqk3+GGUOY/Kop78b4h7yzEWet4DH4tg=",
+        "owner": "lejicore",
+        "repo": "nix-darwin-networking",
+        "rev": "2a470c4a1bb3657c8cd92816a66f473c412d8492",
+        "type": "github"
       },
       "original": {
-        "path": "/Users/nebj/test/darwin-networking",
-        "type": "path"
+        "owner": "lejicore",
+        "repo": "nix-darwin-networking",
+        "type": "github"
       }
     },
     "emacs-overlay": {
@@ -427,11 +430,11 @@
     },
     "nixpkgs_5": {
       "locked": {
-        "lastModified": 1776949667,
-        "narHash": "sha256-GMSVw35Q+294GlrTUKlx087E31z7KurReQ1YHSKp5iw=",
+        "lastModified": 1778672786,
+        "narHash": "sha256-Blg88K1jwG+P0Mr27+rKMFCufdrWkV3wWh9AdYtz0FQ=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "01fbdeef22b76df85ea168fbfe1bfd9e63681b30",
+        "rev": "eef00dfd8a712b34af845f9350bac681b1228bd1",
         "type": "github"
       },
       "original": {

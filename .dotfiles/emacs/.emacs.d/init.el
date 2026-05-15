@@ -2097,6 +2097,14 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 (use-package magit
   :straight t
   :commands magit-status
+  :init
+  (let ((hm-git (format "/etc/profiles/per-user/%s/bin/git" user-login-name)))
+    (setq magit-git-executable
+          (cond
+           ((file-executable-p hm-git) hm-git)
+           ((executable-find "git"))
+           ((file-executable-p "/usr/bin/git") "/usr/bin/git")
+           (t "git"))))
   :custom
   (magit-display-buffer-function #'magit-display-buffer-same-window-except-diff-v1))
 
