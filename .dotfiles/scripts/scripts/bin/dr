@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+ROOT_DIR="${HOME}/terminalConfigs"
+ENV_FILE="${ROOT_DIR}/.env"
+
 resolve_git() {
     local user_git="/etc/profiles/per-user/${USER}/bin/git"
 
@@ -23,19 +26,39 @@ resolve_git() {
     return 1
 }
 
-cd ~/terminalConfigs/.dotfiles/nix/ || exit 1
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Missing env file: $ENV_FILE" >&2
+    exit 1
+fi
+
+set -a
+. "$ENV_FILE"
+set +a
+
+if [ -z "${NIX_REBUILD_SECRET_FILES:-}" ]; then
+    echo "NIX_REBUILD_SECRET_FILES is not set in $ENV_FILE" >&2
+    exit 1
+fi
+
+read -r -a SECRET_FILES <<< "$NIX_REBUILD_SECRET_FILES"
+
+cleanup() {
+    "$GIT_BIN" restore --staged "${SECRET_FILES[@]}" >/dev/null 2>&1 || true
+}
+
+cd "${ROOT_DIR}/.dotfiles/nix/" || exit 1
 GIT_BIN="$(resolve_git)" || {
     echo "Unable to find git in /etc/profiles/per-user/${USER}/bin, PATH, or /usr/bin." >&2
     exit 1
 }
 
-trap '"$GIT_BIN" restore --staged clear-secrets.nix secret-key secret.nix.age >/dev/null 2>&1 || true' EXIT
+trap cleanup EXIT
 
-"$GIT_BIN" add clear-secrets.nix secret-key secret.nix.age
+"$GIT_BIN" add "${SECRET_FILES[@]}"
 if [ -z "${1:-}" ]; then
-    sudo darwin-rebuild switch --flake ~/terminalConfigs/.dotfiles/nix#"$(hostname)"
+    sudo darwin-rebuild switch --flake "${ROOT_DIR}/.dotfiles/nix#$(hostname)"
 elif [ "$1" = "-s" ]; then
-    sudo darwin-rebuild switch --flake ~/terminalConfigs/.dotfiles/nix#"$(hostname)" --show-trace
+    sudo darwin-rebuild switch --flake "${ROOT_DIR}/.dotfiles/nix#$(hostname)" --show-trace
 else
     echo "Unknown '$1' argument"
     exit 1
