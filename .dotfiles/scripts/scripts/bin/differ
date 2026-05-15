@@ -1,6 +1,6 @@
 #!/bin/bash
 
-conf='/home/oxhart/terminalConfigs/.dotfiles'
+conf="$HOME/terminalConfigs/.dotfiles"
 
 
-diff $1 $conf/$2
+diff "$1" "$conf"/"$2"

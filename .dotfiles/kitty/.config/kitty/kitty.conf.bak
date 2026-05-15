@@ -994,7 +994,7 @@ background_opacity 1
 background_image none
 #background_image /usr/share/wallpapers/summer_1am/contents/images/2560x1600.jpg
 #background_image /usr/share/wallpapers/MilkyWay/contents/images/1080x1920.png
-#background_image /home/oxhart/Downloads/HD-purple-wallpaper-image-to-use-as-background-136.png
+#background_image ~/Downloads/HD-purple-wallpaper-image-to-use-as-background-136.png
 
 #: Path to a background image. Must be in PNG format.
 

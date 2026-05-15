@@ -1,10 +1,9 @@
 lastupdatecheck: 0
 recentrepos:
-- /home/oxhart/terminalConfigs
-- /home/oxhart/terminalConfigs/.dotfiles/scripts/scripts/install_mutagen
-- /mnt/c/Users/oxhart/builds/custom-dwm/dwm-win32
-- /home/oxhart/test/ot
-- /home/oxhart/dev/leetcode/k-th-smallest-prime-fraction
+  - ~/terminalConfigs
+  - ~/terminalConfigs/.dotfiles/scripts/scripts/install_mutagen
+  - ~/test/ot
+  - ~/dev/leetcode/k-th-smallest-prime-fraction
 startuppopupversion: 5
 customcommandshistory: []
 hidecommandlog: false

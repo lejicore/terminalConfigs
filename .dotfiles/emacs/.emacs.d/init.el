@@ -758,7 +758,8 @@
     "fl" '(ox/ledeb-dired :which-key "dired-ledeb")
     "fp" '(consult-project-buffer :which-key "consult-project-buffer")
     "fd" '(consult-find :which-key "consult-find")
-    "fg" '(consult-grep :which-key "consult-grep")
+    ;;"fg" '(consult-grep :which-key "consult-grep")
+    "fg" '(consult-ripgrep :which-key "consult-ripgrep")
     "fa" '(consult-org-agenda :which-key "consult-org-agenda")
     "fh" '(consult-org-heading :which-key "consult-org-heading")
     "fr" '(consult-recent-file :which-key "Consult recent files")
@@ -800,11 +801,18 @@ folder, otherwise delete a word"
 (defun my-vertico-alt-done ()
   "Mimic the behavior of `ivy-alt-done' in Vertico."
   (interactive)
-  (if-let* ((file (vertico--candidate)))
-      (if (file-directory-p file)
-	  (vertico-insert)
-	(vertico-exit))
-    (vertico-exit-input)))
+  (if (zerop vertico--total)
+      (vertico-exit-input)
+    (let* ((candidate-index (max 0 vertico--index))
+           (candidate (let ((vertico--index candidate-index))
+                        (substring-no-properties (vertico--candidate)))))
+      (if (and minibuffer-completing-file-name
+               (file-directory-p candidate))
+          (let ((vertico--index candidate-index))
+            (vertico-insert))
+        (when (< vertico--index 0)
+          (vertico-insert))
+        (vertico-exit)))))
 
 
 (use-package vertico
@@ -819,15 +827,17 @@ folder, otherwise delete a word"
 	      ;;("C-f" . my-vertico-alt-done)
 	      ("TAB" . my-vertico-alt-done)
 	      ("?" . minibuffer-completion-help)
-	      ("RET" . minibuffer-force-complete-and-exit)
+	      ("RET" . vertico-exit)
 	      ;;("M-TAB" . minibuffer-complete)
 	      ("M-TAB" . vertico-exit-input)
 	      :map minibuffer-local-map
 	      ;;("M-h" . ox/minibuffer-backward-kill)
 	      ("M-h" . vertico-directory-up)
+	      ("C-w" . vertico-directory-up)
 	      )
   :custom
   (vertico-cycle t)
+  (vertico-preselect 'first)
   :custom-face
   (vertico-current ((t (:background "#3a3f5a"))))
   :init
@@ -842,8 +852,8 @@ folder, otherwise delete a word"
 
 (use-package yasnippet-snippets
     :straight '(yasnippet-snippets :host github
-		       ;;:local-repo "/home/oxhart/builds/ranger.el/"
-		       :repo "S0mbr3/yasnippet-snippets"
+		       ;;:local-repo "~/builds/ranger.el/"
+		       :repo "lejicore/yasnippet-snippets"
 		       :branch "js/ts-treesitter")
   :after yasnippet)
 
@@ -953,6 +963,15 @@ folder, otherwise delete a word"
   :config
   ;; Customizing the find command to exclude git and node_modules folders
   (setq consult-find-args "find . -not ( -path */.git -path */node_modules -prune )")
+
+    ;; Search for hidden files but excludes .git directories
+    (setq consult-ripgrep-args
+      "rg --null --line-buffered --color=never --max-columns=1000 \
+--path-separator / --smart-case --no-heading --with-filename \
+--line-number --search-zip \
+--hidden \
+-g !**/.git/")
+
   (evil-define-key '(normal insert visual) eshell-mode-map (kbd "C-r") 'counsel-esh-history)
   ;; Add preview to consult-find
   (consult-customize consult-find :state (consult--file-preview))
@@ -1015,6 +1034,20 @@ folder, otherwise delete a word"
 	 :map minibuffer-local-map
 	 ("C-d" . embark-act))
   :config
+
+  (defun ox/embark-consult-grep-dired-jump (candidate &optional other-window)
+    "Jump to Dired for the file referenced by Consult grep CANDIDATE.
+With prefix argument OTHER-WINDOW, open Dired in another window."
+    (when-let* ((location (consult--grep-position candidate #'find-file-noselect))
+                (file (buffer-file-name (marker-buffer (car location)))))
+      (dired-jump other-window file)))
+
+  (defvar-keymap ox/embark-consult-grep-map
+    :doc "Embark actions for Consult grep candidates."
+    :parent embark-general-map
+    "j" #'ox/embark-consult-grep-dired-jump)
+
+  (setf (alist-get 'consult-grep embark-keymap-alist) 'ox/embark-consult-grep-map)
 
   ;; Show Embark actions via which-key
   (setq embark-action-indicator
@@ -1915,11 +1948,11 @@ because compile mode is too slow"
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; (setq lsp-clients-angular-language-server-command					   ;;
   ;; '("node"										   ;;
-  ;;   "/home/oxhart/.nvm/versions/node/v22.0.0/lib/node_modules/@angular/language-server" ;;
+  ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules/@angular/language-server" ;;
   ;;   "--ngProbeLocations"								   ;;
-  ;;   "/home/oxhart/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
+  ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
   ;;   "--tsProbeLocations"								   ;;
-  ;;   "/home/oxhart/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
+  ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
   ;;   "--stdio"))									   ;;
   ;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2667,7 +2700,7 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
   :config
   ;; Loading tree-sitter-modules from casouri/tree-sitter-module
   ;; Preventing from manually installing tree-sitter grammars
-  (setq treesit-extra-load-path '("/home/oxhart/builds/tree-sitter-module/dist"))
+  (setq treesit-extra-load-path '("~/builds/tree-sitter-module/dist"))
   ;; Activate tree-sitter globally (minor mode registered on every buffer
   (global-tree-sitter-mode)
   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
@@ -2822,7 +2855,7 @@ map)
     (consult-customize consult-dash :initial (thing-at-point 'symbol)))
   (setq dash-docs-common-docsets '("C" "TypeScript")))
 ;;(org-web-tools-read-url-as-org "https://en.cppreference.com/w/c/keyword/for")
-;;(eaf-open-browser "file:///home/oxhart/.docsets/C.docset/Contents/Resources/Documents/en.cppreference.com/w/c/keyword/for.html")
+;;(eaf-open-browser "file:///~/.docsets/C.docset/Contents/Resources/Documents/en.cppreference.com/w/c/keyword/for.html")
 
 (defun extract-file-uri (input)
   "Extract the file URI with the 'file://' scheme from the input string."
@@ -2933,8 +2966,8 @@ map)
     ;;:straight t
     :disabled t
     :straight '(ranger :host github
-		       ;;:local-repo "/home/oxhart/builds/ranger.el/"
-		       :repo "S0mbr3/ranger.el"
+		       ;;:local-repo "~/builds/ranger.el/"
+		       :repo "lejicore/ranger.el"
 		       :branch "ranger-setup-image-preview")
     :config
     (global-set-key (kbd "C-c d") 'ranger)
@@ -2950,7 +2983,7 @@ map)
 (defun my/dired-check-features ()
   "Check if ranger and dirvish are loaded"
   (or (featurep 'ranger)
-      (featurep' dirvish)))
+      (featurep 'dirvish)))
 
     (use-package dired-hide-dotfiles
       :unless (featurep 'ranger)
@@ -2989,23 +3022,23 @@ map)
 (setq tramp-histfile-override nil) ;; Don't override zsh history in ssh
 (add-to-list 'tramp-connection-properties
              (list (regexp-quote "/sshx:ledeb:")
-                   "remote-shell" "/usr/bin/zsh"))
+                   "remote-shell" "/bin/zsh"))
 (add-to-list 'tramp-connection-properties
-             (list (regexp-quote "/ssh:ledeb:")
-                   "remote-shell" "/usr/bin/zsh"))
+             (list (regexp-quote "/sshx:ledeb:")
+                   "remote-shell" "/bin/zsh"))
 (setq vterm-tramp-shells '(("docker" "/bin/sh")
-			   ("ssh" "/usr/bin/zsh")))
+			   ("sshx" "/usr/bin/zsh")))
 (defun ox/ledeb-vterm ()
   "Open vterm in ledeb server"
   (interactive)
   (print "salut")
-  (let ((default-directory "/ssh:ledeb:"))
+  (let ((default-directory "/sshx:ledeb:~"))
     (multi-vterm)))
 
 (defun ox/ledeb-dired ()
   "Open dired in ledeb server"
   (interactive)
-    (dired "/ssh:ledeb:"))
+    (dired "/sshx:ledeb:~"))
 
 (use-package gnuplot
   :straight t)
@@ -3528,9 +3561,19 @@ map)
     "at" '(agent-shell :which-key "agent-toggle")
     "an" '(agent-shell-new-shell :which-key "agent-shell-new-shell"))
 
+(defun ox/agent-shell-apply-evil-ret ()
+  "Make Enter submit prompts in existing and future `agent-shell' buffers."
+  (when (and (bound-and-true-p evil-local-mode)
+             (derived-mode-p 'agent-shell-mode))
+    (evil-local-set-key 'insert (kbd "RET") #'shell-maker-submit)
+    (evil-local-set-key 'insert (kbd "<return>") #'shell-maker-submit)
+    (evil-local-set-key 'insert (kbd "C-m") #'shell-maker-submit)))
+
 (with-eval-after-load 'agent-shell
-  (with-eval-after-load 'evil
-    (evil-define-key 'insert agent-shell-mode-map (kbd "RET") #'shell-maker-submit)))
+  (add-hook 'agent-shell-mode-hook #'ox/agent-shell-apply-evil-ret)
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (ox/agent-shell-apply-evil-ret))))
 
 (use-package package-build
   :straight t
@@ -3557,7 +3600,7 @@ map)
   	      :pre-build ("make" "all")))
 
 ;;       Manual install of emacs-reader
-;; (add-to-list 'load-path "/Users/nebj/git_builds/emacs-reader")
+;; (add-to-list 'load-path "~/git_builds/emacs-reader")
 ;; (autoload 'reader--saveplace-to-alist "reader-saveplace")
 ;; (require 'reader)
 ;; (dolist (rx '("\\.pdf\\'" "\\.epub\\'" "\\.mobi\\'" "\\.fb2\\'"

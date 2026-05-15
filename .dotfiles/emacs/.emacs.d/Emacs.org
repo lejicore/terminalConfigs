@@ -1047,8 +1047,8 @@ folder, otherwise delete a word"
 
 (use-package yasnippet-snippets
     :straight '(yasnippet-snippets :host github
-		       ;;:local-repo "/home/oxhart/builds/ranger.el/"
-		       :repo "S0mbr3/yasnippet-snippets"
+		       ;;:local-repo "~/builds/ranger.el/"
+		       :repo "lejicore/yasnippet-snippets"
 		       :branch "js/ts-treesitter")
   :after yasnippet)
 
@@ -2202,11 +2202,11 @@ because compile mode is too slow"
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; (setq lsp-clients-angular-language-server-command					   ;;
   ;; '("node"										   ;;
-  ;;   "/home/oxhart/.nvm/versions/node/v22.0.0/lib/node_modules/@angular/language-server" ;;
+  ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules/@angular/language-server" ;;
   ;;   "--ngProbeLocations"								   ;;
-  ;;   "/home/oxhart/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
+  ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
   ;;   "--tsProbeLocations"								   ;;
-  ;;   "/home/oxhart/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
+  ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
   ;;   "--stdio"))									   ;;
   ;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2976,7 +2976,7 @@ Make invisible parts of Org elements appear visible.
 
 the [[https://github.com/emacs-tree-sitter/elisp-tree-sitter][tree-sitter]] package is disabled to use the new builtin treesitter support of emacs 29+
 
-with treesit-auto it's no more needed to install a shared library and point treesitter to load it like [[(setq treesit-extra-load-path '("/home/oxhart/builds/tree-sitter-module/dist"][Here]]
+with treesit-auto it's no more needed to install a shared library and point treesitter to load it like [[(setq treesit-extra-load-path '("~/builds/tree-sitter-module/dist"][Here]]
 
 with treesit-auto you don't have to remap your self the major modes to point to their ts-mode version
  
@@ -3017,7 +3017,7 @@ with treesit-auto you don't have to remap your self the major modes to point to 
   :config
   ;; Loading tree-sitter-modules from casouri/tree-sitter-module
   ;; Preventing from manually installing tree-sitter grammars
-  (setq treesit-extra-load-path '("/home/oxhart/builds/tree-sitter-module/dist"))
+  (setq treesit-extra-load-path '("~/builds/tree-sitter-module/dist"))
   ;; Activate tree-sitter globally (minor mode registered on every buffer
   (global-tree-sitter-mode)
   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
@@ -3187,7 +3187,7 @@ We are using consult-dash as an ui-front end to parse dash-docs
     (consult-customize consult-dash :initial (thing-at-point 'symbol)))
   (setq dash-docs-common-docsets '("C" "TypeScript")))
 ;;(org-web-tools-read-url-as-org "https://en.cppreference.com/w/c/keyword/for")
-;;(eaf-open-browser "file:///home/oxhart/.docsets/C.docset/Contents/Resources/Documents/en.cppreference.com/w/c/keyword/for.html")
+;;(eaf-open-browser "file:///~/.docsets/C.docset/Contents/Resources/Documents/en.cppreference.com/w/c/keyword/for.html")
 
 (defun extract-file-uri (input)
   "Extract the file URI with the 'file://' scheme from the input string."
@@ -3304,8 +3304,8 @@ We are using consult-dash as an ui-front end to parse dash-docs
     ;;:straight t
     :disabled t
     :straight '(ranger :host github
-		       ;;:local-repo "/home/oxhart/builds/ranger.el/"
-		       :repo "S0mbr3/ranger.el"
+		       ;;:local-repo "~/builds/ranger.el/"
+		       :repo "lejicore/ranger.el"
 		       :branch "ranger-setup-image-preview")
     :config
     (global-set-key (kbd "C-c d") 'ranger)
@@ -4007,7 +4007,7 @@ Tools are grouped into modules. The main library just sets up loading and unload
   	      :pre-build ("make" "all")))
 
 ;;       Manual install of emacs-reader
-;; (add-to-list 'load-path "/Users/nebj/git_builds/emacs-reader")
+;; (add-to-list 'load-path "~/git_builds/emacs-reader")
 ;; (autoload 'reader--saveplace-to-alist "reader-saveplace")
 ;; (require 'reader)
 ;; (dolist (rx '("\\.pdf\\'" "\\.epub\\'" "\\.mobi\\'" "\\.fb2\\'"

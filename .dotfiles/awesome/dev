@@ -7,5 +7,5 @@ else
   echo "Xephyr is not running"
   Xephyr :1 -ac -screen 2560x1600 &
   sleep 0.1
-  DISPLAY=:1 awesome -c /home/oxhart/Documents/builds/terminalConfigs/.dotfiles/awesome/rc-dev.lua
+  DISPLAY=:1 awesome -c "$HOME"/terminalConfigs/.dotfiles/awesome/rc-dev.lua
 fi

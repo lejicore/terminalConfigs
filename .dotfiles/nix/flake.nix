@@ -13,7 +13,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     darwin-networking = {
-      url = "path:/Users/nebj/test/darwin-networking";
+      #url = "path:~/test/darwin-networking";
+      url = "github:lejicore/nix-darwin-networking";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -22,7 +23,7 @@
     nix-rage = {
       #url = "github:renesat/nix-rage";
       url = "github:lejicore/nix-rage?ref=fix_darwin";
-      #url = "path:/Users/nebj/dev/nix-rage";
+      #url = "path:~/dev/nix-rage";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -134,7 +135,7 @@
             nix.settings.plugin-files = [
               #"${nix-rage.packages.${darwin-pkgs.system}.default}/lib/libnix_rage.dylib"
               "${nix-rage.packages.${darwin-system}.default}/lib/libnix_rage${darwin-pkgs.stdenv.hostPlatform.extensions.sharedLibrary}"
-              #"/Users/Nebj/test/libnix_rage.dylib"
+              #"~/test/libnix_rage.dylib"
             ];
           }
           { networking.hostName = rage-hostName; }

@@ -7,7 +7,7 @@
 ;; Some functionality uses this to identify you, e.g. GPG configuration, email
 ;; clients, file templates and snippets. It is optional.
 (setq user-full-name "John Doe"
-      user-mail-address "john@doe.com")
+    user-mail-address "john@doe.com")
 
 ;; Doom exposes five (optional) variables for controlling fonts in Doom:
 ;;
@@ -95,56 +95,56 @@
 ;; they are implemented.
 
 (setq lsp-clients-angular-language-server-command
-  '("node"
-    "/home/oxhart/.nodenv/versions/16.10.0/lib/node_modules/@angular/language-server"
-    "--ngProbeLocations"
-    "/home/oxhart/.nodenv/versions/16.10.0/lib/node_modules"
-    "--tsProbeLocations"
-    "/home/oxhart/.nodenv/versions/16.10.0/lib/node_modules"
-    "--stdio"))
+    '("node"
+         "~/.nodenv/versions/16.10.0/lib/node_modules/@angular/language-server"
+         "--ngProbeLocations"
+         "~/.nodenv/versions/16.10.0/lib/node_modules"
+         "--tsProbeLocations"
+         "~/.nodenv/versions/16.10.0/lib/node_modules"
+         "--stdio"))
 
-  (advice-add 'json-parse-buffer :around
-              (lambda (orig &rest rest)
-                (while (re-search-forward "\\u0000" nil t)
-                  (replace-match ""))
-                (apply orig rest)))
+(advice-add 'json-parse-buffer :around
+    (lambda (orig &rest rest)
+        (while (re-search-forward "\\u0000" nil t)
+            (replace-match ""))
+        (apply orig rest)))
 
 (setq which-key-idle-delay 1)
 ;; quick shortcut to change fast between php mode and web-mode
 (defun toggle-php-flavor-mode ()
-  "Toggle mode between PHP & Web-Mode Helper modes"
-  (interactive)
-  (cond ((string= mode-name "PHP\\\\l")
-         (web-mode))
+    "Toggle mode between PHP & Web-Mode Helper modes"
+    (interactive)
+    (cond ((string= mode-name "PHP\\\\l")
+              (web-mode))
         ((string= mode-name "PHP")
-         (web-mode))
+            (web-mode))
         ((string= mode-name "Web")
-         (php-mode))))
+            (php-mode))))
 
 ;;(global-set-key [f5] 'toggle-php-flavor-mode)
 ;;(setq display-line-numbers 'relative)
- ;;(require 'back-button)
-    ;;(back-button-mode 1)
-    ;;press the plus sign in the toolbar to create a mark
-    ;;press the arrows in the toolbar to navigate marks
-    ;;or use C-x C-Space as usual
+;;(require 'back-button)
+;;(back-button-mode 1)
+;;press the plus sign in the toolbar to create a mark
+;;press the arrows in the toolbar to navigate marks
+;;or use C-x C-Space as usual
 ;;(use-package frog-jump-buffer :ensure t)
 (use-package frog-jump-buffer)
 
 (defvar my-keys-minor-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-|") 'frog-jump-buffer)
-    map)
-  "my-keys-minor-mode keymap.")
+    (let ((map (make-sparse-keymap)))
+        (define-key map (kbd "C-|") 'frog-jump-buffer)
+        map)
+    "my-keys-minor-mode keymap.")
 
 (define-minor-mode my-keys-minor-mode
-  "A minor mode so that my key settings override annoying major modes."
-  :init-value t
-  :lighter " my-keys")
+    "A minor mode so that my key settings override annoying major modes."
+    :init-value t
+    :lighter " my-keys")
 (my-keys-minor-mode 1)
 
 (defun my-minibuffer-setup-hook ()
-  (my-keys-minor-mode 0))
+    (my-keys-minor-mode 0))
 (add-hook 'minibuffer-setup-hook 'my-minibuffer-setup-hook)
 ;; (require 'bind-key)
 ;; (bind-key* "C-|" 'frog-jump-buffer)
@@ -174,91 +174,91 @@
 ;;(setq dired-kill-when-opening-new-dired-buffer t)
 
 (map! :leader
-      (:prefix ("d" . "dired")
-       :desc "Open dired" "d" #'dired
-       :desc "Dired jump to current" "j" #'dired-jump)
-      (:after dired
-              (:map dired-mode-map
-               :desc "Peep-dired image previews" "d p" #'peep-dired
-               :desc "Dired view file" "d v" #'dired-view-file)
-              ))
+    (:prefix ("d" . "dired")
+        :desc "Open dired" "d" #'dired
+        :desc "Dired jump to current" "j" #'dired-jump)
+    (:after dired
+        (:map dired-mode-map
+            :desc "Peep-dired image previews" "d p" #'peep-dired
+            :desc "Dired view file" "d v" #'dired-view-file)
+        ))
 
 (evil-define-key 'normal dired-mode-map
-  (kbd "h") 'dired-up-directory
-  (kbd "l") 'dired-find-file
-  )
+    (kbd "h") 'dired-up-directory
+    (kbd "l") 'dired-find-file
+    )
 
 (add-hook 'dired-mode-hook 'all-the-icons-dired-mode)
 
 ;;(setq peep-dired-cleanup-eagerly t)
-; will disable at closing dired
+                                        ; will disable at closing dired
 ;;(setq peep-dired-cleanup-on-disable t)
 (setq peep-dired-cleanup-on-disable t)
 ;;(setq peep-dired-enable-on-multiple-windows nil)
 ;;(setq peep-dired-enable-on-directories t)
 
 (evil-define-key 'normal peep-dired-mode-map (kbd "<SPC>") 'peep-dired-scroll-page-down
-                                             (kbd "C-<SPC>") 'peep-dired-scroll-page-up
-                                             (kbd "<backspace>") 'peep-dired-scroll-page-up
-                                             (kbd "j") 'peep-dired-next-file
-                                             (kbd "k") 'peep-dired-prev-file)
+    (kbd "C-<SPC>") 'peep-dired-scroll-page-up
+    (kbd "<backspace>") 'peep-dired-scroll-page-up
+    (kbd "j") 'peep-dired-next-file
+    (kbd "k") 'peep-dired-prev-file)
 (add-hook 'peep-dired-hook 'evil-normalize-keymaps)
 
 
 ;;settings for multi vterm
 
 (use-package multi-vterm
-  :config
-  (add-hook 'vterm-mode-hook
-            (lambda ()
-              (setq-local evil-insert-state-cursor 'box)
-              (evil-insert-state)))
-  (define-key vterm-mode-map [return]                      #'vterm-send-return)
+    :config
+    (add-hook 'vterm-mode-hook
+        (lambda ()
+            (setq-local evil-insert-state-cursor 'box)
+            (evil-insert-state)))
+    (define-key vterm-mode-map [return]                      #'vterm-send-return)
 
-  (setq vterm-keymap-exceptions nil)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-e")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-f")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-a")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-v")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-b")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-w")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-u")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-d")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-n")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-m")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-p")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-j")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-k")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-r")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-t")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-g")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-c")      #'vterm--self-insert)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-SPC")    #'vterm--self-insert)
-  (evil-define-key 'normal vterm-mode-map (kbd "C-d")      #'vterm--self-insert)
-  (evil-define-key 'normal vterm-mode-map (kbd ",c")       #'multi-vterm)
-  ;;(evil-define-key 'normal vterm-mode-map (kbd "M-n")       #'+vterm/toggle)
-  ;;(evil-define-key 'insert vterm-mode-map (kbd "M-n")       #'+vterm/toggle)
-  ;;(unbind-key "ESC" 'vterm-mode-map)
-  (evil-define-key 'insert vterm-mode-map (kbd "C-m")       #'vterm-send-escape)
-  ;;(evil-define-key 'insert vterm-mode-map (kbd "C-z")       #'vterm-send-C-z)
-  ;;(evil-define-key 'insert vterm-mode-map (kbd "C-m")       #'evil-escape)
-  (map! :n "C-<escape>" #'+vterm/toggle)
-  (map! :i "C-<escape>" #'+vterm/toggle)
-  (evil-define-key 'normal vterm-mode-map (kbd ",n")       #'multi-vterm-next)
-  (evil-define-key 'normal vterm-mode-map (kbd ",p")       #'multi-vterm-prev)
-  (evil-define-key 'normal vterm-mode-map (kbd "i")        #'evil-insert-resume)
-  (evil-define-key 'normal vterm-mode-map (kbd "o")        #'evil-insert-resume)
-  (evil-define-key 'normal vterm-mode-map (kbd "<return>") #'evil-insert-resume))
+    (setq vterm-keymap-exceptions nil)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-e")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-f")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-a")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-v")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-b")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-w")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-u")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-d")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-n")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-m")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-p")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-j")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-k")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-r")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-t")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-g")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-c")      #'vterm--self-insert)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-SPC")    #'vterm--self-insert)
+    (evil-define-key 'normal vterm-mode-map (kbd "C-d")      #'vterm--self-insert)
+    (evil-define-key 'normal vterm-mode-map (kbd ",c")       #'multi-vterm)
+    ;;(evil-define-key 'normal vterm-mode-map (kbd "M-n")       #'+vterm/toggle)
+    ;;(evil-define-key 'insert vterm-mode-map (kbd "M-n")       #'+vterm/toggle)
+    ;;(unbind-key "ESC" 'vterm-mode-map)
+    (evil-define-key 'insert vterm-mode-map (kbd "C-m")       #'vterm-send-escape)
+    ;;(evil-define-key 'insert vterm-mode-map (kbd "C-z")       #'vterm-send-C-z)
+    ;;(evil-define-key 'insert vterm-mode-map (kbd "C-m")       #'evil-escape)
+    (map! :n "C-<escape>" #'+vterm/toggle)
+    (map! :i "C-<escape>" #'+vterm/toggle)
+    (evil-define-key 'normal vterm-mode-map (kbd ",n")       #'multi-vterm-next)
+    (evil-define-key 'normal vterm-mode-map (kbd ",p")       #'multi-vterm-prev)
+    (evil-define-key 'normal vterm-mode-map (kbd "i")        #'evil-insert-resume)
+    (evil-define-key 'normal vterm-mode-map (kbd "o")        #'evil-insert-resume)
+    (evil-define-key 'normal vterm-mode-map (kbd "<return>") #'evil-insert-resume))
 
 ;;org-alert
 (use-package! org-alert
-  :custom (alert-default-style 'libnotify)
+    :custom (alert-default-style 'libnotify)
     :config (setq org-alert-interval 300
                 org-alert-notify-cutoff 10
                 org-alert-notify-after-event-cutoff 10
                 alert-libnotify-additional-args '("--hint=string:desktop-entry:emacs")
                 org-alert-notification-title "Org Notifications")
-                ( org-alert-enable))
+    ( org-alert-enable))
 ;;
 ;;the function below will open a temporary buffer to show the content of the corresponding to the pattern i am searching in the project
 
@@ -266,24 +266,24 @@
 ;;                                             (text-mode)))
 
 (defun my/ivy-format-function-search (cands)
-  (ivy--format-function-default (mapcar (lambda (cand)
-                                          (let ((file (car cand))
-                                            (line (cadr cand)))
-                                        (with-temp-buffer
-                                          (insert-file-contents file)
-                                          (concat
-                                           (propertize file 'face 'ivy-grep-info)
-                                           ":"
-                                           (propertize (number-to-string line) 'face 'font-lock-constant-face)
-                                           ": "
-                                           (buffer-substring (line-beginning-position) (line-end-position))))))
-                                  cands)))
+    (ivy--format-function-default (mapcar (lambda (cand)
+                                              (let ((file (car cand))
+                                                       (line (cadr cand)))
+                                                  (with-temp-buffer
+                                                      (insert-file-contents file)
+                                                      (concat
+                                                          (propertize file 'face 'ivy-grep-info)
+                                                          ":"
+                                                          (propertize (number-to-string line) 'face 'font-lock-constant-face)
+                                                          ": "
+                                                          (buffer-substring (line-beginning-position) (line-end-position))))))
+                                      cands)))
 
 
 (setq ivy-format-function 'my/ivy-format-function-search)
 
 (map! :leader
-      "/" #'+vertico/project-search)
+    "/" #'+vertico/project-search)
 
 (setq-default left-fringe-width nil)
 (setq-default right-fringe-width 0)
