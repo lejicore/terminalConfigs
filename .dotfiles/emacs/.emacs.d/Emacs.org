@@ -1024,6 +1024,7 @@ folder, otherwise delete a word"
 	      )
   :custom
   (vertico-cycle t)
+  (vertico-preselect 'first)
   :custom-face
   (vertico-current ((t (:background "#3a3f5a"))))
   :init
