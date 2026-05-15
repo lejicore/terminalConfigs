@@ -43,6 +43,10 @@ in
   atuin
   pyenv
   zsh-history-substring-search
+  lua
+  lua-language-server
+  stylua
+  luajitPackages.luacheck
   luarocks
   luajit
   sops
