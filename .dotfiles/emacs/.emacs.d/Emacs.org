@@ -1231,6 +1231,20 @@ folder, otherwise delete a word"
 	 ("C-d" . embark-act))
   :config
 
+  (defun ox/embark-consult-grep-dired-jump (candidate &optional other-window)
+    "Jump to Dired for the file referenced by Consult grep CANDIDATE.
+With prefix argument OTHER-WINDOW, open Dired in another window."
+    (when-let* ((location (consult--grep-position candidate #'find-file-noselect))
+                (file (buffer-file-name (marker-buffer (car location)))))
+      (dired-jump other-window file)))
+
+  (defvar-keymap ox/embark-consult-grep-map
+    :doc "Embark actions for Consult grep candidates."
+    :parent embark-general-map
+    "j" #'ox/embark-consult-grep-dired-jump)
+
+  (setf (alist-get 'consult-grep embark-keymap-alist) 'ox/embark-consult-grep-map)
+
   ;; Show Embark actions via which-key
   (setq embark-action-indicator
 	(lambda (map)
