@@ -1,8 +1,36 @@
 #!/usr/bin/env bash
 
-cd ~/terminalConfigs/.dotfiles/nix/ || exit
-git add clear-secrets.nix secret-key secret.nix.age
+set -euo pipefail
+
+resolve_git() {
+    local user_git="/etc/profiles/per-user/${USER}/bin/git"
+
+    if [ -x "$user_git" ]; then
+        printf '%s\n' "$user_git"
+        return 0
+    fi
+
+    if command -v git >/dev/null 2>&1; then
+        command -v git
+        return 0
+    fi
+
+    if [ -x /usr/bin/git ]; then
+        printf '%s\n' /usr/bin/git
+        return 0
+    fi
+
+    return 1
+}
+
+cd ~/terminalConfigs/.dotfiles/nix/ || exit 1
+GIT_BIN="$(resolve_git)" || {
+    echo "Unable to find git in /etc/profiles/per-user/${USER}/bin, PATH, or /usr/bin." >&2
+    exit 1
+}
+
+trap '"$GIT_BIN" restore --staged clear-secrets.nix secret-key secret.nix.age >/dev/null 2>&1 || true' EXIT
+
+"$GIT_BIN" add clear-secrets.nix secret-key secret.nix.age
 
 nix run home-manager -- "$@" switch --flake ~/terminalConfigs/.dotfiles/nix#"$(whoami)"
-
-git restore --staged clear-secrets.nix secret-key secret.nix.age
