@@ -2387,6 +2387,14 @@ We then had to define the =N= keybinding again once [[(with-eval-after-load 'for
 (use-package magit
   :straight t
   :commands magit-status
+  :init
+  (let ((hm-git (format "/etc/profiles/per-user/%s/bin/git" user-login-name)))
+    (setq magit-git-executable
+          (cond
+           ((file-executable-p hm-git) hm-git)
+           ((executable-find "git"))
+           ((file-executable-p "/usr/bin/git") "/usr/bin/git")
+           (t "git"))))
   :custom
   (magit-display-buffer-function #'magit-display-buffer-same-window-except-diff-v1))
 
