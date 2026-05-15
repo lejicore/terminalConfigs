@@ -1021,6 +1021,7 @@ folder, otherwise delete a word"
 	      :map minibuffer-local-map
 	      ;;("M-h" . ox/minibuffer-backward-kill)
 	      ("M-h" . vertico-directory-up)
+	      ("C-w" . vertico-directory-up)
 	      )
   :custom
   (vertico-cycle t)
