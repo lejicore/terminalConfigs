@@ -996,11 +996,18 @@ folder, otherwise delete a word"
 (defun my-vertico-alt-done ()
   "Mimic the behavior of `ivy-alt-done' in Vertico."
   (interactive)
-  (if-let* ((file (vertico--candidate)))
-      (if (file-directory-p file)
-	  (vertico-insert)
-	(vertico-exit))
-    (vertico-exit-input)))
+  (if (zerop vertico--total)
+      (vertico-exit-input)
+    (let* ((candidate-index (max 0 vertico--index))
+           (candidate (let ((vertico--index candidate-index))
+                        (substring-no-properties (vertico--candidate)))))
+      (if (and minibuffer-completing-file-name
+               (file-directory-p candidate))
+          (let ((vertico--index candidate-index))
+            (vertico-insert))
+        (when (< vertico--index 0)
+          (vertico-insert))
+        (vertico-exit)))))
 
 
 (use-package vertico
