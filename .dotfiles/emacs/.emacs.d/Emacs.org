@@ -1159,6 +1159,15 @@ folder, otherwise delete a word"
   :config
   ;; Customizing the find command to exclude git and node_modules folders
   (setq consult-find-args "find . -not ( -path */.git -path */node_modules -prune )")
+
+    ;; Search for hidden files but excludes .git directories
+    (setq consult-ripgrep-args
+      "rg --null --line-buffered --color=never --max-columns=1000 \
+--path-separator / --smart-case --no-heading --with-filename \
+--line-number --search-zip \
+--hidden \
+-g !**/.git/")
+
   (evil-define-key '(normal insert visual) eshell-mode-map (kbd "C-r") 'counsel-esh-history)
   ;; Add preview to consult-find
   (consult-customize consult-find :state (consult--file-preview))
