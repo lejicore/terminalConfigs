@@ -308,7 +308,8 @@ We use the no-littering package to keep folders where we edit files and the Emac
 (set-frame-parameter nil 'alpha-background my-opacity) ; For current frame
 (set-frame-parameter nil 'ns-background-blur 20) ; For current frame
 (add-to-list 'default-frame-alist `(alpha-background . ,my-opacity)) ; For all new frames henceforth
-;;(add-to-list 'default-frame-alist `(ns-alpha-elements . (ns-alpha-all)) ; For all new frames henceforth
+(add-to-list 'default-frame-alist `(ns-alpha-elements . (ns-alpha-all))) ; For all new frames henceforth
+(add-to-list 'default-frame-alist `(ns-background-blur . ,20)) ; 
 #+end_src
 
 * Ligatures
