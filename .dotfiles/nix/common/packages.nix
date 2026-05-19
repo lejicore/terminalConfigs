@@ -95,4 +95,5 @@ in
   qwen-code
   gemini-cli
   dbeaver-bin
+  pkgconf
 ]
