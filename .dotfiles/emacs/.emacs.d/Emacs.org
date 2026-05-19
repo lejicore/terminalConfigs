@@ -517,6 +517,7 @@ Using persp-mode to create different workspaces
 
 
     (setq persp-autokill-buffer-on-remove 'kill-weak)
+    (setq persp-auto-save-persps-to-their-file nil)
     (add-hook 'window-setup-hook #'(lambda () (persp-mode 1)))
 
     (defvar my-dynamic-persps '()
@@ -524,6 +525,87 @@ Using persp-mode to create different workspaces
 
     (defconst my-persp-order-buffer-name "*persp-order*"
       "Buffer name used to edit the perspective order.")
+
+    (defconst my-persp-order-file
+      (expand-file-name "persp-order.el" user-emacs-directory)
+      "File used to persist the manual perspective order.")
+
+    (defun my/persp-none-name ()
+      "Return the name used by `persp-mode' for the nil perspective."
+      (if (boundp 'persp-nil-name) persp-nil-name "none"))
+
+    (defun my/load-persp-order ()
+      "Return the persisted manual perspective order, or nil."
+      (when (file-readable-p my-persp-order-file)
+        (with-temp-buffer
+          (insert-file-contents my-persp-order-file)
+          (let ((order (read (current-buffer))))
+            (when (and (listp order) (seq-every-p #'stringp order))
+              order)))))
+
+    (defun my/save-persp-order ()
+      "Persist `my-dynamic-persps' for the next Emacs restart."
+      (make-directory (file-name-directory my-persp-order-file) t)
+      (with-temp-file my-persp-order-file
+        (prin1 my-dynamic-persps (current-buffer))))
+
+    (defun my/save-persp-state ()
+      "Persist the current `persp-mode' state without interrupting commands."
+      (when (and (bound-and-true-p persp-mode)
+                 (fboundp 'persp-save-state-to-file))
+        (condition-case err
+            (persp-save-state-to-file)
+          (error
+           (message "Could not save perspective state: %S" err)))))
+
+    (defun my/rebuild-persp-order (&optional current-persps base-order)
+      "Return perspective order merged with CURRENT-PERPS.
+Current order is preserved for existing perspectives and new ones are appended."
+      (let* ((current-persps (or current-persps
+                                 (remove (my/persp-none-name) persp-names-cache)))
+             (base-order (or base-order my-dynamic-persps))
+             (ordered-existing
+              (seq-filter (lambda (name) (member name current-persps))
+                          base-order))
+             (new-persps
+              (seq-remove (lambda (name) (member name ordered-existing))
+                          current-persps)))
+        (append ordered-existing new-persps)))
+
+    (defun my/persp-hash-names ()
+      "Return all non-nil perspective names currently present in `*persp-hash*'."
+      (let (names)
+        (when (and (boundp '*persp-hash*) (hash-table-p *persp-hash*))
+          (maphash
+           (lambda (_key persp)
+             (let ((name (and (fboundp 'safe-persp-name)
+                              (safe-persp-name persp))))
+               (when (and name (not (string= name (my/persp-none-name))))
+                 (push name names))))
+           *persp-hash*))
+        (nreverse names)))
+
+    (defun my/persp-current-names ()
+      "Return all known non-nil perspective names."
+      (delete-dups
+       (append (my/persp-hash-names)
+               (remove (my/persp-none-name) persp-names-cache))))
+
+    (defun my/apply-persp-order-to-runtime (ordered-names &optional save)
+      "Apply ORDERED-NAMES to numbered shortcuts and `persp-mode` runtime state."
+      (setq my-dynamic-persps ordered-names)
+      (when (fboundp 'persp-update-names-cache)
+        (persp-update-names-cache (cons (my/persp-none-name) my-dynamic-persps) t))
+      (when save
+        (my/save-persp-order)
+        (my/save-persp-state)))
+
+    (defun my/sync-persp-cache-before-save (_fname phash _respect-persp-file-parameter)
+      "Make `persp-mode' autosave include every perspective in the global hash."
+      (when (and (boundp '*persp-hash*) (eq phash *persp-hash*))
+        (my/apply-persp-order-to-runtime
+         (my/rebuild-persp-order (my/persp-current-names))
+         nil)))
 
     (defun my-update-dynamic-persps1 ()
       "Update `my-dynamic-persps` with the current list of perspectives."
@@ -536,14 +618,22 @@ Using persp-mode to create different workspaces
 
     (defun my-update-dynamic-persps ()
       "Sync `my-dynamic-persps` with `persp-names-cache` while preserving manual order."
-      (let* ((current-persps (remove "none" persp-names-cache))
-             (ordered-existing
-              (seq-filter (lambda (name) (member name current-persps))
-                          my-dynamic-persps))
-             (new-persps
-              (seq-remove (lambda (name) (member name ordered-existing))
-                          current-persps)))
-        (setq my-dynamic-persps (append ordered-existing new-persps))))
+      (let* ((current-persps (my/persp-current-names))
+             (previous-order my-dynamic-persps)
+             (next-order (my/rebuild-persp-order current-persps)))
+        (setq my-dynamic-persps next-order)
+        (unless (equal previous-order my-dynamic-persps)
+          (my/apply-persp-order-to-runtime my-dynamic-persps t))))
+
+    (defun my/restore-persp-order (&rest _)
+      "Restore persisted perspective order after `persp-mode' loads state."
+      (let ((saved-order (my/load-persp-order)))
+        (when saved-order
+          (my/apply-persp-order-to-runtime
+           (my/rebuild-persp-order
+            (my/persp-current-names)
+            saved-order)
+           nil))))
 
     ;; Backwards compatibility for legacy references without the trailing "s".
     (defalias 'my-update-dynamic-persp #'my-update-dynamic-persps)
@@ -551,6 +641,8 @@ Using persp-mode to create different workspaces
     (advice-add 'persp-kill :after (lambda (&rest _) (my-update-dynamic-persps)))
     (advice-add 'persp-switch :after (lambda (&rest _) (my-update-dynamic-persps)))
     (advice-add 'persp-add-new :after (lambda (&rest _) (my-update-dynamic-persps)))
+    (add-hook 'persp-after-load-state-functions #'my/restore-persp-order)
+    (add-hook 'persp-before-save-state-to-file-functions #'my/sync-persp-cache-before-save)
 
     (defun my-switch-to-persp (name)
       "Switch to the perspective with NAME and update `my-dynamic-persps`."
@@ -578,7 +670,7 @@ Using persp-mode to create different workspaces
       (interactive)
       (unless (string= (buffer-name) my-persp-order-buffer-name)
         (user-error "Not in the perspective order buffer"))
-      (let* ((current-persps (remove "none" persp-names-cache))
+      (let* ((current-persps (my/persp-current-names))
              (new-order (my/persp-order-buffer-contents))
              (unknown (seq-remove (lambda (name) (member name current-persps)) new-order))
              (missing (seq-remove (lambda (name) (member name new-order)) current-persps))
@@ -592,7 +684,7 @@ Using persp-mode to create different workspaces
          (duplicates
           (user-error "Duplicate perspectives in buffer: %s" (string-join (delete-dups duplicates) ", ")))
          (t
-          (setq my-dynamic-persps new-order)
+          (my/apply-persp-order-to-runtime new-order t)
           (quit-restore-window (selected-window) 'kill)
           (message "Perspective order updated: %s" (string-join my-dynamic-persps ", "))))))
 
@@ -628,7 +720,7 @@ Using persp-mode to create different workspaces
 
     ;; Keybinding to create or switch to a named perspective
     (global-set-key (kbd "C-x p n") 'my-switch-to-persp)
-    (global-set-key (kbd "C-x p r") 'my/edit-persp-order)
+    (global-set-key (kbd "C-c p e") 'my/edit-persp-order)
 
     (defvar my-persp-number-key-bindings-installed nil
       "Whether perspective number keybindings have been installed.")
