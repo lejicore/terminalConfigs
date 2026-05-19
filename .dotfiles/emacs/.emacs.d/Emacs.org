@@ -244,7 +244,7 @@ We use the no-littering package to keep folders where we edit files and the Emac
                        (fboundp 'my/persp-vterm-buffer-count))
               (let ((count (my/persp-vterm-buffer-count)))
                 (when (and count (> count 0))
-                  (format " 🖥%d" count)))))
+      (format "%s%d" (string #x1F5A5 #xFE0F) count)))))
     "Mode line format for vterm buffer count.")
 
   ;; Add to mode-line-misc-info so it appears without disrupting doom-modeline
