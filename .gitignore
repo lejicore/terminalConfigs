@@ -7,5 +7,5 @@ nohup.out
 .dotfiles/scripts/scripts/fete/day.json
 **/*~
 **/.DS_Store
-/.agent-shell/
 .dotfiles/nix/dev/postgresql/.env
+.dotfiles/emacs/.emacs.d/init.el
