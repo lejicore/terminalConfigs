@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Find in ~/.dotfiles folder what stow has stowed
+find ~ -maxdepth 3 -type l | while read f; do
+  readlink "$f"
+done | grep "dotfiles" | sed 's|.*/.dotfiles/\([^/]*\)/.*|\1|' | sort -u
