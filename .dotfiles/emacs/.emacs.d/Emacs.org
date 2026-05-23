@@ -1199,10 +1199,6 @@ A side note you can change between both stack by changing ox/enable-ivy ox/enabl
   (add-to-list 'yas-snippet-dirs (expand-file-name "~/.emacs.d/snippets"))
   (yas-reload-all))
 (setq yas-snippet-dirs nil)
-
-(use-package yasnippet-snippets
-  :straight t
-  :after yasnippet)
 #+end_src
 
 ** Vertico/consult/orderless/marginalia/embark/corfu
