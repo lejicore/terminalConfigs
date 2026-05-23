@@ -2746,6 +2746,9 @@ We then had to define the =N= keybinding again once [[(with-eval-after-load 'for
 (setq org-format-latex-header
       (concat org-format-latex-header "\n\\usepackage{tikz}")) ;; adding tikz package to latex header
 
+(add-to-list 'org-latex-packages-alist
+             '("" "circuitikz" t))
+
  ;; Open PDF files links in org-mode inside emacs instead of an external tool
 (push '("\\.pdf\\'" . emacs) org-file-apps)
   (setq org-return-follows-link t) ;; Allow to follow links using RET key
