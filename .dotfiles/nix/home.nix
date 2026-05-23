@@ -105,6 +105,36 @@ lib.mkMerge [
       ".emacs.d" = {
         source = config.lib.file.mkOutOfStoreSymlink emacsDir;
       };
+      ".config/kitty" = {
+        source = ../kitty/.config/kitty;
+      };
+      ".config/nvim" = {
+        source = ../nvim/.config/nvim;
+      };
+      "scripts" = {
+        source = ../scripts/scripts;
+      };
+      ".tmux.conf" = {
+        source = ../tmux/.tmux.conf;
+      };
+      ".config/tridactyl" = {
+        source = ../tridactyl_mac/tridactyl;
+      };
+      ".p10k.zsh" = {
+        source = ../zsh/.p10k.zsh;
+      };
+      ".shell.pre-oh-my-zsh" = {
+        source = ../zsh/.shell.pre-oh-my-zsh;
+      };
+      ".zprofile" = {
+        source = ../zsh/.zprofile;
+      };
+      ".zshenv" = {
+        source = ../zsh/.zshenv;
+      };
+      ".zshrc" = {
+        source = ../zsh/.zshrc;
+      };
 
       ".gitignore_global".text = ''
         .DS_Store
