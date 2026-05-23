@@ -84,6 +84,9 @@ in
     ".config/ueberzugpp" = {
       source = ../ueberzugpp/.config/ueberzugpp;
     };
+    ".config/aerospace" = {
+      source = ../aerospace/.config/aerospace;
+    };
   };
 
   home.activation.decryptPassword = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
