@@ -304,12 +304,87 @@ We use the no-littering package to keep folders where we edit files and the Emac
 	 (add-to-list 'default-frame-alist '(internal-border-width . 9)) ;; helpful to see full letters at bottom
 	 (add-to-list 'default-frame-alist '(undecorated . t))))) ;; Remove title bar, and every decorations
 ;; All:
-(set-frame-parameter nil 'ns-alpha-elements '(ns-alpha-all))
-(set-frame-parameter nil 'alpha-background my-opacity) ; For current frame
-(set-frame-parameter nil 'ns-background-blur 20) ; For current frame
-(add-to-list 'default-frame-alist `(alpha-background . ,my-opacity)) ; For all new frames henceforth
-(add-to-list 'default-frame-alist `(ns-alpha-elements . (ns-alpha-all))) ; For all new frames henceforth
-(add-to-list 'default-frame-alist `(ns-background-blur . ,20)) ; 
+;; (set-frame-parameter nil 'ns-alpha-elements '(ns-alpha-all))
+;; (set-frame-parameter nil 'alpha-background my-opacity) ; For current frame
+;; (set-frame-parameter nil 'ns-background-blur 10) ; For current frame
+;; (add-to-list 'default-frame-alist `(alpha-background . ,my-opacity)) ; For all new frames henceforth
+;; (add-to-list 'default-frame-alist `(ns-alpha-elements . (ns-alpha-all))) ; For all new frames henceforth
+;; (add-to-list 'default-frame-alist `(ns-background-blur . ,20)) ; 
+(defgroup my/frame-transparency nil
+  "Cross-platform frame transparency."
+  :group 'frames)
+
+(defcustom my-opacity 86
+  "Background opacity for graphical Emacs frames.
+100 means opaque, 0 means fully transparent."
+  :type 'integer
+  :group 'my/frame-transparency)
+
+(defcustom my-macos-blur-radius 10
+  "Blur radius for patched macOS NS Emacs builds."
+  :type 'integer
+  :group 'my/frame-transparency)
+
+(defun my/macos-ns-p (&optional frame)
+  "Non-nil when FRAME is a macOS NS graphical frame."
+  (and (featurep 'ns)
+       (display-graphic-p (frame-parameter frame 'display))
+       (eq (framep frame) 'ns)))
+
+(defun my/linux-gui-p (&optional frame)
+  "Non-nil when FRAME is a Linux graphical frame."
+  (and (display-graphic-p (frame-parameter frame 'display))
+       (memq (framep frame) '(x pgtk))))
+
+(defun my/frame-transparency-parameters (&optional frame)
+  "Return transparency parameters suitable for FRAME."
+  (cond
+   ;; macOS NS build with bbenchen/homebrew-emacs-plus blur patch.
+   ((my/macos-ns-p frame)
+    `((alpha-background . ,my-opacity)
+      (ns-background-blur . ,my-macos-blur-radius)
+      (ns-alpha-elements . (ns-alpha-all))))
+
+   ;; Linux X11 / PGTK.
+   ;; Blur itself is compositor-side: picom, Hyprland, KDE, etc.
+   ((my/linux-gui-p frame)
+    `((alpha-background . ,my-opacity)))
+
+   ;; Terminal or unsupported frame.
+   (t nil)))
+
+(defun my/apply-frame-transparency (&optional frame)
+  "Apply transparency to FRAME."
+  (let ((frame (or frame (selected-frame))))
+    (when-let* ((params (my/frame-transparency-parameters frame)))
+      (modify-frame-parameters frame params))))
+
+(defun my/add-default-frame-transparency-parameters ()
+  "Add transparency defaults for future frames.
+
+Important for daemon/emacsclient: some parameters, especially
+`ns-background-blur', need to be present at frame creation time."
+  ;; Portable Emacs 29+ background-only transparency.
+  (add-to-list 'default-frame-alist `(alpha-background . ,my-opacity))
+
+  ;; Only add NS-specific parameters in an NS-capable macOS build.
+  ;; In daemon mode, `window-system' can be nil, but `(featurep 'ns)'
+  ;; is still true in the macOS NS build.
+  (when (featurep 'ns)
+    (add-to-list 'default-frame-alist
+                 `(ns-background-blur . ,my-macos-blur-radius))
+    (add-to-list 'default-frame-alist
+                 '(ns-alpha-elements . (ns-alpha-all)))))
+
+(my/add-default-frame-transparency-parameters)
+
+(add-hook 'after-make-frame-functions #'my/apply-frame-transparency)
+
+(unless (daemonp)
+  (add-hook 'window-setup-hook #'my/apply-frame-transparency))
+
+(when (display-graphic-p)
+  (my/apply-frame-transparency))
 #+end_src
 
 * Ligatures
