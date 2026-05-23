@@ -3706,6 +3706,9 @@ We are using consult-dash as an ui-front end to parse dash-docs
 
 * Updates
 #+begin_src emacs-lisp
+(require 'cl-lib)
+(require 'subr-x)
+
 (defgroup ox/straight-update nil
   "Lightweight scheduled updates for straight.el."
   :group 'convenience)
@@ -3722,6 +3725,11 @@ We are using consult-dash as an ui-front end to parse dash-docs
 
 (defcustom ox/straight-update-prompt-before-update t
   "Whether to ask before running straight updates."
+  :type 'boolean
+  :group 'ox/straight-update)
+
+(defcustom ox/straight-update-skip-dirty-repos t
+  "When non-nil, skip dirty repos instead of letting `straight-pull-all' stop."
   :type 'boolean
   :group 'ox/straight-update)
 
@@ -3749,12 +3757,117 @@ We are using consult-dash as an ui-front end to parse dash-docs
         (>= (float-time (time-subtract (current-time) last-run))
             (* ox/straight-update-interval-days 24 60 60)))))
 
-(defun ox/straight-update-all ()
-  "Update all straight packages without involving package.el."
+(defun ox/straight--repos-dir ()
+  "Return straight.el's repos directory."
+  (expand-file-name "straight/repos/" straight-base-dir))
+
+(defun ox/straight--git-lines (repo &rest args)
+  "Run git ARGS in REPO and return output lines."
+  (let ((default-directory repo))
+    (with-temp-buffer
+      (let ((exit-code (apply #'process-file "git" nil t nil args)))
+        (unless (zerop exit-code)
+          (error "git %s failed in %s:\n%s"
+                 (string-join args " ")
+                 repo
+                 (buffer-string)))
+        (split-string (buffer-string) "\n" t)))))
+
+(defun ox/straight--repo-dirty-p (repo)
+  "Return non-nil when REPO has tracked, untracked, or submodule changes."
+  (ox/straight--git-lines repo "status" "--porcelain=v1" "--untracked-files=normal"))
+
+(defun ox/straight-dirty-repos ()
+  "Return an alist of dirty straight repos.
+
+Each element is of the form:
+
+  (REPO-NAME . STATUS-LINES)"
+  (let ((repos-dir (ox/straight--repos-dir)))
+    (when (file-directory-p repos-dir)
+      (cl-loop for file in (directory-files repos-dir t directory-files-no-dot-files-regexp)
+               when (and (file-directory-p file)
+                         (file-exists-p (expand-file-name ".git" file)))
+               for status = (ox/straight--repo-dirty-p file)
+               when status
+               collect (cons (file-name-nondirectory file) status)))))
+
+(defun ox/straight--recipe-package-alist ()
+  "Return an alist mapping straight local repo names to package symbols."
+  (unless (boundp 'straight--recipe-cache)
+    (error "straight--recipe-cache is not available; straight.el is not loaded yet"))
+  (let (result)
+    (maphash
+     (lambda (package recipe)
+       (let ((repo (plist-get recipe :local-repo)))
+         (when repo
+           (push (cons repo package) result))))
+     straight--recipe-cache)
+    result))
+
+(defun ox/straight--clean-packages (dirty-repos)
+  "Return straight package symbols whose repos are not in DIRTY-REPOS."
+  (let ((dirty-names (mapcar #'car dirty-repos))
+        (repo->package (ox/straight--recipe-package-alist))
+        result)
+    (dolist (entry repo->package)
+      (pcase-let ((`(,repo . ,package) entry))
+        (unless (member repo dirty-names)
+          (cl-pushnew package result))))
+    (nreverse result)))
+
+(defun ox/straight-report-dirty-repos (&optional dirty-repos)
+  "Display DIRTY-REPOS in a compact buffer."
   (interactive)
-  (straight-pull-all)
-  (straight-rebuild-all)
-  (ox/straight-update-record-run))
+  (let ((dirty-repos (or dirty-repos (ox/straight-dirty-repos))))
+    (if (null dirty-repos)
+        (message "No dirty straight repos.")
+      (with-current-buffer (get-buffer-create "*straight dirty repos*")
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (insert "Dirty straight.el repos:\n\n")
+          (dolist (entry dirty-repos)
+            (pcase-let ((`(,repo . ,lines) entry))
+              (insert (format "%s\n" repo))
+              (dolist (line lines)
+                (insert (format "  %s\n" line)))
+              (insert "\n")))
+          (goto-char (point-min))
+          (view-mode 1))
+        (display-buffer (current-buffer))))))
+
+(defun ox/straight-update-clean-packages ()
+  "Pull clean straight packages, skipping dirty repos."
+  (let* ((dirty-repos (ox/straight-dirty-repos))
+         (clean-packages (ox/straight--clean-packages dirty-repos))
+         (failures 0))
+    (when dirty-repos
+      (ox/straight-report-dirty-repos dirty-repos)
+      (message "Skipping %d dirty straight repos: %s"
+               (length dirty-repos)
+               (string-join (mapcar #'car dirty-repos) ", ")))
+    (dolist (package clean-packages)
+      (condition-case err
+          (straight-pull-package package)
+        (error
+         (cl-incf failures)
+         (message "Failed to pull %S: %s" package (error-message-string err)))))
+    (straight-rebuild-all)
+    (if (zerop failures)
+        (progn
+          (ox/straight-update-record-run)
+          (message "Straight update finished. Updated clean packages; skipped dirty repos."))
+      (message "Straight update finished with %d pull failure(s); last-run timestamp not updated."
+               failures))))
+
+(defun ox/straight-update-all ()
+  "Update straight packages without involving package.el."
+  (interactive)
+  (if ox/straight-update-skip-dirty-repos
+      (ox/straight-update-clean-packages)
+    (straight-pull-all)
+    (straight-rebuild-all)
+    (ox/straight-update-record-run)))
 
 (defun ox/straight-update-maybe ()
   "Prompt for a straight update when the configured interval has elapsed."
