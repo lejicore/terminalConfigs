@@ -5,6 +5,10 @@
   ...
 }:
 
+let
+  emacsDir = "${config.home.homeDirectory}/terminalConfigs/.dotfiles/emacs/.emacs.d";
+  emacsBin = "${pkgs.emacsLejiWithPackages}/bin/emacs";
+in
 # * Home Manager
 # use home manager as nix-darwin module, so that user profiles are built
 # together with the system when running darwin-rebuild
@@ -18,6 +22,18 @@
   home.sessionPath = [
     "$HOME/bin"
   ];
+
+  home.activation.tangleEmacsConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ ! -f "${emacsDir}/init.el" ]; then
+      echo "Tangling Emacs.org to init.el..."
+      cd "${emacsDir}"
+      "${emacsBin}" --batch \
+        --eval "(require 'org)" \
+        --eval '(progn (setq ox/enable-ivy nil ox/enable-vertico t ox/enable-cape t)
+                (org-babel-tangle-file "./Emacs.org"))'
+    fi
+  '';
+
   # Keep Neovim unmanaged by Home Manager so ~/.config/nvim/init.lua stays user-owned.
   # Neovim itself is installed from package lists in this repo.
   programs.neovim = {
@@ -34,7 +50,7 @@
 
   home.packages = with pkgs; [
     ueberzugpp
-    imagemagick #comment out if managing neovim with home manager instead of installing from package list
+    imagemagick # comment out if managing neovim with home manager instead of installing from package list
   ];
 
   programs.ranger = {
@@ -51,7 +67,7 @@
 
   home.file = {
     ".emacs.d" = {
-      source = ../emacs/.emacs.d;
+      source = config.lib.file.mkOutOfStoreSymlink emacsDir;
     };
     ".gitignore_global".text = ''
       .DS_Store
