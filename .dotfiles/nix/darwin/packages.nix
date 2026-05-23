@@ -28,4 +28,12 @@ common-packages
     set -euo pipefail
     exec docker compose -f ~/terminalConfigs/.dotfiles/nix/dev/postgres/coc-war-bot.compose.yml down -v
   '')
+  (writeShellScriptBin "coc-db-backup" ''
+    set -euo pipefail
+    cd ~/terminalConfigs/.dotfiles/nix/dev/postgres/
+    if [ ! -d "backups" ]; then
+        mkdir -p backups
+    fi
+    docker exec coc-war-bot-postgres pg_dump -U coc -d coc_war_bot -Fc > backups/coc_war_bot_$(date +%Y%m%d_%H%M%S).dump
+  '')
 ]
