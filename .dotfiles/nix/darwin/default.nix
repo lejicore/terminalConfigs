@@ -99,6 +99,7 @@ in
       "ungoogled-chromium"
       "battery-toolkit"
       "docker-desktop"
+      "Sikarugir-App/sikarugir/sikarugir"
     ];
     caskArgs = {
       #no_quarantine = true;
