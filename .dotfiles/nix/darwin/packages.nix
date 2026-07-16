@@ -2,10 +2,12 @@
 with pkgs;
 let
   common-packages = import ../common/packages.nix { pkgs = pkgs; };
+  metalvoice = pkgs.callPackage ../pkgs/metalvoice-bin.nix { };
 in
 
 common-packages
 ++ [
+  metalvoice
   wget
   gnugrep
   tree
