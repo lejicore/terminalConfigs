@@ -79,11 +79,15 @@ in
   poppler-utils # getting pdftotext
   vips # Used to get images previews in Dirvish
   ffmpegthumbnailer # Used to get previews on videofiles in Dirvish
+  ffmpeg
   mediainfo # Used to get previews on audio in Dirvish
 
   #mupdf
   copilot-language-server
   bash-language-server
+  asm-lsp
+  maigret
+  ddgr
   eza
   hyperfine
   claude-code
