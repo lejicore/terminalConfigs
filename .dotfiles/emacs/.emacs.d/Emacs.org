@@ -2429,12 +2429,14 @@ because compile mode is too slow"
    (html-mode . lsp-deferred)
    (nix-ts-mode . lsp-deferred)
    (bash-ts-mode . lsp-deferred)
+   (asm-mode . lsp-deferred)
    ;; (rust-ts-mode . lsp-deferred)
    (js-ts-mode . lsp-deferred))
   :init
   (setq lsp-keymap-prefix "C-c C-l")
   (define-key lsp-mode-map (kbd "C-c C-l") lsp-command-map)
   :config
+    (add-to-list 'lsp-language-id-configuration '(asm-mode . "asm"))
   (setq lsp-clients-kotlin-server-executable "~/builds/kotlin-language-server/server/build/install/server/bin/kotlin-language-server")
   (setq lsp-completion-enable nil)
   (setq lsp-rust-server 'rust-analyzer) ; or 'rls
