@@ -8,6 +8,8 @@ bind A hint -b
 bind a hint
 bind q bmark
 bind gc tabduplicate
+bind ]] followpage next
+bind [[ followpage prev
 
 bind \ fillcmdline tgroupswitch
 bind | fillcmdline tgroupmove
