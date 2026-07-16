@@ -25,6 +25,14 @@ set smoothscroll true
 unbind ;o
 bind ;o tabopen https://chatgpt.com/?model=gpt-5
 
+set followpagepatterns.next ^(next|newer|more|suivant|page suivante|plus de résultats)\b|»|>>
+set followpagepatterns.prev ^(prev(ious)?|older|précédent|page précédente)\b|«|<<
+
+seturl www.google.com followpagepatterns.next ^(Next|Suivant|Page suivante|Plus de résultats)$
+seturl www.google.com followpagepatterns.prev ^(Previous|Précédent|Page précédente)$
+seturl www.google.fr followpagepatterns.next ^(Next|Suivant|Page suivante|Plus de résultats)$
+seturl www.google.fr followpagepatterns.prev ^(Previous|Précédent|Page précédente)$
+
 set searchurls.g https://www.google.com/search?q=
 set searchurls.w https:/fr.wikipedia.org/wiki/Spécial:Recherche/
 set searchurls.ww https://fr.wiktionary.org/wiki/Spécial:Recherche/
