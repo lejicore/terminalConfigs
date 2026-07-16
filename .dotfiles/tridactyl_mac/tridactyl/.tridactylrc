@@ -65,7 +65,8 @@ set searchurls.tcg https://chatgpt.com/?model=auto&temporary-chat=true&hints=sea
 set searchurls.cgc https://chatgpt.com/?model=gpt-4o-canmore&q=
 set searchurls.co https://chatgpt.com/?model=o4-mini-high&q=
 
-set searchurls.lc https://chat.mistral.ai/chat?model=codestral&q=
+" set searchurls.lc https://chat.mistral.ai/chat?model=codestral&q=
+set searchurls.lc https://chat.mistral.ai/chat?q=
 set searchurls.pe https://www.perplexity.ai/search?q=
 set searchurls.k https://www.kagi.com/search?q=
 
