@@ -51,7 +51,7 @@ set searchurls.pk https://www.pokepedia.fr/
 set searchurls.st https://www.stadiumgaming.gg/rank-checker?pokemon=
 set searchurls.sx https://searxng.brihx.fr/search?q=
 set searchurls.br https://search.brave.com/search?q=
-set searchurls.coc https://clashofclans.fandom.com/wiki/Special:Search?query=%s1&scope=internal&navigationSearch=true
+set searchurls.wcoc https://clashofclans.fandom.com/wiki/Special:Search?query=%s1&scope=internal&navigationSearch=true
 
 set searchurls.pv https://pvpoke.com/rankings/all/%s1/overall/%s2/
 
