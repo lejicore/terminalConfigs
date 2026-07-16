@@ -4384,6 +4384,14 @@ Tools are grouped into modules. The main library just sets up loading and unload
       (if auth-info
 	  (funcall (plist-get (car auth-info) :secret))
 	(error "Mistral AI API key not found in .authinfo"))))
+  (defun my-opencode-api-key ()
+    (let ((auth-info (auth-source-search
+		      :host "api.opencode.ai"
+		      :user "apikey"
+		      :require '(:secret))))
+      (if auth-info
+	  (funcall (plist-get (car auth-info) :secret))
+	(error "OpenCode AI API key not found in .authinfo"))))
 
 (ox/leader-keys
     "a" '(:ignore t :which-key "agent-shell")
