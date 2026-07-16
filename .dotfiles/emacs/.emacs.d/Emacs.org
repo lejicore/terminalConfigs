@@ -2680,309 +2680,328 @@ We then had to define the =N= keybinding again once [[(with-eval-after-load 'for
 ** Org configuration
 #+begin_src emacs-lisp
 (defun ox/org-mode-setup ()
-(setq org-adapt-indentation t)
-;;(set-face-attribute 'org-indent nil :inherit '(org-hide fixed-pitch))
-  (org-indent-mode)
-  (mixed-pitch-mode 1)
+    (setq org-adapt-indentation t)
+    ;;(set-face-attribute 'org-indent nil :inherit '(org-hide fixed-pitch))
+    (org-indent-mode)
+    (mixed-pitch-mode 1)
     ;;(valign-mode 1)
-  (visual-line-mode 1))
+    (visual-line-mode 1))
 ;;(set-face-attribute 'org-date nil :inherit 'fixed-pitch)
 
 (defun ox/after-org-capture (&rest r)
-  (delete-other-windows))
+    (delete-other-windows))
 
 (use-package org
-  :straight t
-  ;;:ensure nil
-  ;;:pin org
-  :commands (org-capture org-agenda)
-  :hook ((org-mode . ox/org-mode-setup)
-	 (org-mode . ox/org-mode-init)
-	 (org-mode . ox/org-flycheck-setup)
-	 (org-mode . (lambda()
-		       (set-face-attribute 'org-table nil :inherit 'fixed-pitch)))
-	 (org-mode . (lambda () (org-superstar-mode 0))))
-  :config
-  ;; This advice allow to open capture template in full window size instead of split
-  (advice-add #'org-capture-place-template :after 'ox/after-org-capture)
-  ;; same buf for editing src code blocks in org file
-  (advice-add #'org-edit-special :after 'ox/after-org-capture)
+    :straight t
+    ;;:ensure nil
+    ;;:pin org
+    :commands (org-capture org-agenda)
+    :hook ((org-mode . ox/org-mode-setup)
+	      (org-mode . ox/org-mode-init)
+	      (org-mode . ox/org-flycheck-setup)
+	      (org-mode . (lambda()
+		              (set-face-attribute 'org-table nil :inherit 'fixed-pitch)))
+	      (org-mode . (lambda () (org-superstar-mode 0))))
+    :config
+    ;; This advice allow to open capture template in full window size instead of split
+    (advice-add #'org-capture-place-template :after 'ox/after-org-capture)
+    ;; same buf for editing src code blocks in org file
+    (advice-add #'org-edit-special :after 'ox/after-org-capture)
 
-  (message "hi from org-mode")
-  (setq org-ellipsis " ↲"
+    (message "hi from org-mode")
+    (setq org-ellipsis " ↲"
 	org-hide-emphasis-markers t
 	org-pretty-entities t
 	org-startup-with-inline-images t
 	org-agenda-time-grid
 	'((daily today require-timed)
-	  (800 1000 1200 1400 1600 1800 2000)
-	  " ┄┄┄┄┄ " "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄")
+	     (800 1000 1200 1400 1600 1800 2000)
+	     " ┄┄┄┄┄ " "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄")
 	org-agenda-current-time-string
 	"◀── now ─────────────────────────────────────────────────")
 
-  (setq org-link-search-must-match-exact-headline nil) ;; Allow fuzzy search while using links
-  (setq org-agenda-start-with-log-mode t)
-  (setq org-log-done 'time)
-  (setq org-log-into-drawer t)
-  (setq org-agenda-files my-org-files)
-  (setq org-src-tab-acts-natively t)
-  (setq org-src-preserve-indentation t)
-  (setq org-edit-src-content-indentation 0)
-  (setq org-startup-with-latex-preview t) ;; Preview of latex symbols
-  (setq org-format-latex-options (plist-put org-format-latex-options :scale 3.0)) ;; Change latex symbols size
+    (setq org-link-search-must-match-exact-headline nil) ;; Allow fuzzy search while using links
+    (setq org-agenda-start-with-log-mode t)
+    (setq org-log-done 'time)
+    (setq org-log-into-drawer t)
+    (setq org-agenda-files my-org-files)
+    (setq org-src-tab-acts-natively t)
+    (setq org-src-preserve-indentation t)
+    (setq org-edit-src-content-indentation 0)
+    (setq org-startup-with-latex-preview t) ;; Preview of latex symbols
+    (setq org-format-latex-options (plist-put org-format-latex-options :scale 3.0)) ;; Change latex symbols size
 
-  (setq org-image-actual-width nil) ;; Allowing to resize images in org files
+    (setq org-image-actual-width nil) ;; Allowing to resize images in org files
 
-  (setq org-latex-compiler "lualatex") ;; Compile pdfwith lualatex instead of pdflatex
-  (setq org-preview-latex-default-process 'dvisvgm) ;; using svg instead of dvipng for formula and graphics
-  (setq org-preview-latex-process-alist
+    (setq org-latex-compiler "lualatex") ;; Compile pdfwith lualatex instead of pdflatex
+    (setq org-preview-latex-default-process 'dvisvgm) ;; using svg instead of dvipng for formula and graphics
+    (setq org-preview-latex-process-alist
 	'((dvisvgm :programs ("lualatex" "dvisvgm")
-		   :description "dvi > svg"
-		   :message "you need to install the programs: lualatex and dvisvgm."
-		   :image-size-adjust (1.7 . 1.5)
-                   :image-input-type "dvi"
-                   :image-output-type "svg"
-                   :latex-compiler ("lualatex -output-format=dvi -interaction nonstopmode -output-directory %o %f")
-		   :image-converter
-		   ("dvisvgm %f --no-fonts --exact-bbox --scale=%S --output=%O"))))
-(setq org-format-latex-header
-      (concat org-format-latex-header "\n\\usepackage{tikz}")) ;; adding tikz package to latex header
+	      :description "dvi > svg"
+	      :message "you need to install the programs: lualatex and dvisvgm."
+	      :image-size-adjust (1.7 . 1.5)
+              :image-input-type "dvi"
+              :image-output-type "svg"
+              :latex-compiler ("lualatex -output-format=dvi -interaction nonstopmode -output-directory %o %f")
+	      :image-converter
+	      ("dvisvgm %f --no-fonts --exact-bbox --scale=%S --output=%O"))))
+    (setq org-format-latex-header
+        (concat org-format-latex-header "\n\\usepackage{tikz}")) ;; adding tikz package to latex header
 
-(add-to-list 'org-latex-packages-alist
-             '("" "circuitikz" t))
+    (add-to-list 'org-latex-packages-alist
+        '("" "circuitikz" t))
 
- ;; Open PDF files links in org-mode inside emacs instead of an external tool
-(push '("\\.pdf\\'" . emacs) org-file-apps)
-  (setq org-return-follows-link t) ;; Allow to follow links using RET key
-  (setq org-link-frame-setup
+    ;; Open PDF files links in org-mode inside emacs instead of an external tool
+    (push '("\\.pdf\\'" . emacs) org-file-apps)
+    (setq org-return-follows-link t) ;; Allow to follow links using RET key
+    (setq org-link-frame-setup
         '((vm . vm-visit-folder-other-frame)
-          (vm-imap . vm-visit-imap-folder-other-frame)
-          (gnus . org-gnus-no-new-news)
-          (file . find-file)
-          (wl . wl-other-frame)))
+             (vm-imap . vm-visit-imap-folder-other-frame)
+             (gnus . org-gnus-no-new-news)
+             (file . find-file)
+             (wl . wl-other-frame)))
 
 
-  ;;(setq python-indent-offset 4) ; Set indentation to 4 spaces (or any other desired value)
+    ;;(setq python-indent-offset 4) ; Set indentation to 4 spaces (or any other desired value)
 
 
-  (require 'org-indent)
-  (require 'org-habit)
-  (add-to-list 'org-modules 'org-habit)
+    (require 'org-indent)
+    (require 'org-habit)
+    (add-to-list 'org-modules 'org-habit)
 
-  ;; Uncheck all checkboxes in a habit entry when it's marked DONE
-  (defun my/org-uncheck-checkboxes-in-habit ()
-  "Uncheck all checkboxes in a habit entry when it's marked DONE."
-  (when (and (string= org-state "DONE")
-             (org-entry-get nil "STYLE")
-             (string= (org-entry-get nil "STYLE") "habit"))
-    (save-excursion
-      (org-back-to-heading t)
-      (let ((end (save-excursion (org-end-of-subtree t t))))
-        (while (re-search-forward "^\\s-*\\([-+*]\\) \\[\\([Xx]\\|[-]\\)\\] " end t)
-          (replace-match (concat (match-string 1) " [ ] ") nil nil))))))
-  
-(add-hook 'org-after-todo-state-change-hook #'my/org-uncheck-checkboxes-in-habit)
+    ;; Uncheck all checkboxes in a habit entry when it's marked DONE
+    (defun my/org-uncheck-checkboxes-in-habit ()
+        "Uncheck all checkboxes in a habit entry when it's marked DONE."
+        (when (and (string= org-state "DONE")
+                  (org-entry-get nil "STYLE")
+                  (string= (org-entry-get nil "STYLE") "habit"))
+            (save-excursion
+                (org-back-to-heading t)
+                (let ((end (save-excursion (org-end-of-subtree t t))))
+                    (while (re-search-forward "^\\s-*\\([-+*]\\) \\[\\([Xx]\\|[-]\\)\\] " end t)
+                        (replace-match (concat (match-string 1) " [ ] ") nil nil))))))
+    
+    (add-hook 'org-after-todo-state-change-hook #'my/org-uncheck-checkboxes-in-habit)
 
-  (setq org-todo-keywords
+    (setq org-todo-keywords
 	'((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d!)")
-	  (sequence "HABIT(h)" "DONE")
-	  (sequence "BUYING(b1)" "|" "bought(B!)")
-	  (sequence "BACKLOG(b)" "PLAN(p)" "READY(r)" "ACTIVE(a)" "REVIEW(v)" "WAIT(w@/!)" "HOLD(h)" "|" "COMPLETED(c)" "CANC(k@)")
-	  (sequence "A-PLAN()" "A-READY()" "A-ACTIVE()" "A-REVIEW()" "A-WAIT(@/!)" "A-HOLD()" "|" "A-COMPLETED(c)" "A-CANC(k@)")))
+	     (sequence "HABIT(h)" "DONE")
+	     (sequence "BUYING(b1)" "|" "bought(B!)")
+	     (sequence "BACKLOG(b)" "PLAN(p)" "READY(r)" "ACTIVE(a)" "REVIEW(v)" "WAIT(w@/!)" "HOLD(h)" "|" "COMPLETED(c)" "CANC(k@)")
+	     (sequence "A-PLAN()" "A-READY()" "A-ACTIVE()" "A-REVIEW()" "A-WAIT(@/!)" "A-HOLD()" "|" "A-COMPLETED(c)" "A-CANC(k@)")))
 
-  (setq org-refile-targets
+    (setq org-refile-targets
 	'(("Archive.org" :maxlevel . 1)
-	  ("Tasks.org" :maxlevel . 1)))
+	     ("Tasks.org" :maxlevel . 1)))
 
-  ;; Save Org buffers after refiling!
-  (advice-add 'org-refile :after 'org-save-all-org-buffers)
+    ;; Save Org buffers after refiling!
+    (advice-add 'org-refile :after 'org-save-all-org-buffers)
 
-  (setq org-tag-alist
+    (setq org-tag-alist
 	'((:startgroup)
 					; Put mutually exclusive tags here
-	  (:endgroup)
-	  ("@errand" . ?E)
-	  ("@home" . ?H)
-	  ("habit" . ?h)
-	  ("@work" . ?W)
-	  ("@learn" . ?L)
-	  ("@math" . ?m)
-	  ("@roam" . ?r)
-	  ("@config" . ?c)
-	  ("@wsl-configs" . ?w)
-	  ("agenda" . ?a)
-	  ("@aude" . ?A)
-	  ("planning" . ?p)
-	  ("publish" . ?P)
-	  ("batch" . ?b)
-	  ("note" . ?n)
-	  ("idea" . ?i)))
+	     (:endgroup)
+	     ("@errand" . ?E)
+	     ("@home" . ?H)
+	     ("habit" . ?h)
+	     ("@work" . ?W)
+	     ("@learn" . ?L)
+	     ("@math" . ?m)
+	     ("@roam" . ?r)
+	     ("@config" . ?c)
+	     ("@wsl-configs" . ?w)
+	     ("agenda" . ?a)
+	     ("@aude" . ?A)
+	     ("planning" . ?p)
+	     ("publish" . ?P)
+	     ("batch" . ?b)
+	     ("note" . ?n)
+	     ("idea" . ?i)))
 
-  ;; Configure custom agenda views
-  (setq org-agenda-custom-commands
+    ;; Configure custom agenda views
+    (setq org-agenda-custom-commands
 	'(("d" "Dashboard"
-	   ((agenda "" ((org-deadline-warning-days 7)))
-	    (todo "NEXT"
-		  ((org-agenda-overriding-header "Next Tasks")))
-	    (tags-todo "active" ((org-agenda-overriding-header "Active Projects")))))
-	    ;; (tags-todo "agenda/ACTIVE" ((org-agenda-overriding-header "Active Projects")))))
+	      ((agenda "" ((org-deadline-warning-days 7)))
+	          (todo "NEXT"
+		      ((org-agenda-overriding-header "Next Tasks")))
+	          (tags-todo "active" ((org-agenda-overriding-header "Active Projects")))))
+	     ;; (tags-todo "agenda/ACTIVE" ((org-agenda-overriding-header "Active Projects")))))
 
-	  ("h" "Habit Tasks"
-	   ((todo "HABIT"
-		  ((org-agenda-overriding-header "Habit Tasks")))))
+	     ("h" "Habit Tasks"
+	         ((todo "HABIT"
+		      ((org-agenda-overriding-header "Habit Tasks")))))
 
-	  ("n" "Next Tasks"
-	   ((todo "NEXT"
-		  ((org-agenda-overriding-header "Next Tasks")))))
+	     ("n" "Next Tasks"
+	         ((todo "NEXT"
+		      ((org-agenda-overriding-header "Next Tasks")))))
 
-	  ("b" "Shopping Tasks"
-	   ((todo "BUYING"
-		  ((org-agenda-overriding-header "Shopping Tasks")))))
+	     ("b" "Shopping Tasks"
+	         ((todo "BUYING"
+		      ((org-agenda-overriding-header "Shopping Tasks")))))
 
-	  ("W" "Work Tasks" tags-todo "+work-email")
+	     ("W" "Work Tasks" tags-todo "+work-email")
 
-	  ;; Low-effort todo actions
-	  ("l" tags-todo "+TODO=\"TODO\"+Effort<15&+Effort>0"
-	   ((org-agenda-overriding-header "Low Effort Tasks")
-	    (org-agenda-max-todos 20)
-	    (org-agenda-files org-agenda-files)))
+	     ;; Low-effort todo actions
+	     ("l" tags-todo "+TODO=\"TODO\"+Effort<15&+Effort>0"
+	         ((org-agenda-overriding-header "Low Effort Tasks")
+	             (org-agenda-max-todos 20)
+	             (org-agenda-files org-agenda-files)))
 
-	  ;; Low-effort next actions
-	  ("e" tags-todo "+TODO=\"NEXT\"+Effort<15&+Effort>0"
-	   ((org-agenda-overriding-header "Low Effort Tasks")
-	    (org-agenda-max-todos 20)
-	    (org-agenda-files org-agenda-files)))
+	     ;; Low-effort next actions
+	     ("e" tags-todo "+TODO=\"NEXT\"+Effort<15&+Effort>0"
+	         ((org-agenda-overriding-header "Low Effort Tasks")
+	             (org-agenda-max-todos 20)
+	             (org-agenda-files org-agenda-files)))
 
-	  ("w" "Workflow Status"
-	   ((todo "WAIT"
-		  ((org-agenda-overriding-header "Waiting on External")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "REVIEW"
-		  ((org-agenda-overriding-header "In Review")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "PLAN"
-		  ((org-agenda-overriding-header "In Planning")
-		   (org-agenda-todo-list-sublevels nil)
-		   (org-agenda-files org-agenda-files)))
-	    (todo "BACKLOG"
-		  ((org-agenda-overriding-header "Project Backlog")
-		   (org-agenda-todo-list-sublevels nil)
-		   (org-agenda-files org-agenda-files)))
-	    (todo "READY"
-		  ((org-agenda-overriding-header "Ready for Work")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "ACTIVE"
-		  ((org-agenda-overriding-header "Active Projects")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "COMPLETED"
-		  ((org-agenda-overriding-header "Completed Projects")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "CANC"
-		  ((org-agenda-overriding-header "Cancelled Projects")
-		   (org-agenda-files org-agenda-files)))))
+	     ("w" "Workflow Status"
+	         ((todo "WAIT"
+		      ((org-agenda-overriding-header "Waiting on External")
+		          (org-agenda-files org-agenda-files)))
+	             (todo "REVIEW"
+		         ((org-agenda-overriding-header "In Review")
+		             (org-agenda-files org-agenda-files)))
+	             (todo "PLAN"
+		         ((org-agenda-overriding-header "In Planning")
+		             (org-agenda-todo-list-sublevels nil)
+		             (org-agenda-files org-agenda-files)))
+	             (todo "BACKLOG"
+		         ((org-agenda-overriding-header "Project Backlog")
+		             (org-agenda-todo-list-sublevels nil)
+		             (org-agenda-files org-agenda-files)))
+	             (todo "READY"
+		         ((org-agenda-overriding-header "Ready for Work")
+		             (org-agenda-files org-agenda-files)))
+	             (todo "ACTIVE"
+		         ((org-agenda-overriding-header "Active Projects")
+		             (org-agenda-files org-agenda-files)))
+	             (todo "COMPLETED"
+		         ((org-agenda-overriding-header "Completed Projects")
+		             (org-agenda-files org-agenda-files)))
+	             (todo "CANC"
+		         ((org-agenda-overriding-header "Cancelled Projects")
+		             (org-agenda-files org-agenda-files)))))
 
-	  ("v" "Activities Status"
-	   ((todo "A-WAIT"
-		  ((org-agenda-overriding-header "Waiting on External")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "A-REVIEW"
-		  ((org-agenda-overriding-header "In Review")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "A-PLAN"
-		  ((org-agenda-overriding-header "In Planning")
-		   (org-agenda-todo-list-sublevels nil)
-		   (org-agenda-files org-agenda-files)))
-	    (todo "A-READY"
-		  ((org-agenda-overriding-header "Ready to Go")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "A-ACTIVE"
-		  ((org-agenda-overriding-header "Active Activities")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "A-COMPLETED"
-		  ((org-agenda-overriding-header "Completed Activities")
-		   (org-agenda-files org-agenda-files)))
-	    (todo "A-CANC"
-		  ((org-agenda-overriding-header "Cancelled Activities")
-		   (org-agenda-files org-agenda-files)))))))
+	     ("v" "Activities Status"
+	         ((todo "A-WAIT"
+		      ((org-agenda-overriding-header "Waiting on External")
+		          (org-agenda-files org-agenda-files)))
+	             (todo "A-REVIEW"
+		         ((org-agenda-overriding-header "In Review")
+		             (org-agenda-files org-agenda-files)))
+	             (todo "A-PLAN"
+		         ((org-agenda-overriding-header "In Planning")
+		             (org-agenda-todo-list-sublevels nil)
+		             (org-agenda-files org-agenda-files)))
+	             (todo "A-READY"
+		         ((org-agenda-overriding-header "Ready to Go")
+		             (org-agenda-files org-agenda-files)))
+	             (todo "A-ACTIVE"
+		         ((org-agenda-overriding-header "Active Activities")
+		             (org-agenda-files org-agenda-files)))
+	             (todo "A-COMPLETED"
+		         ((org-agenda-overriding-header "Completed Activities")
+		             (org-agenda-files org-agenda-files)))
+	             (todo "A-CANC"
+		         ((org-agenda-overriding-header "Cancelled Activities")
+		             (org-agenda-files org-agenda-files)))))))
 
-  (setq org-capture-templates
+    (setq org-capture-templates
 	`(("t" "Tasks / Projects")
-	  ("tc" "Task+file" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
-	   "* TODO %?\n  %U\n  %a\n  %i" :empty-lines 1)
-	  ("tt" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
-	   "* TODO %?\n  %U\n  %i" :empty-lines 1)
-	  ("tp" "GaulBOT" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "GaulBOT")
-	   "* TODO %?\n  %U\n  %i" :empty-lines 1)
+	     ("tc" "Task+file" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	         "* TODO %?\n  %U\n  %a\n  %i" :empty-lines 1)
+	     ("tt" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	         "* TODO %?\n  %U\n  %i" :empty-lines 1)
+	     ("tg" "GaulBOT" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "GaulBOT")
+	         "* TODO %?\n  %U\n  %i" :empty-lines 1)
 
-	  ("s" "Shopping / Projects")
-	  ("ss" "Shop" entry (file+olp ,(expand-file-name "org-files/Shopping.org"  my-org-directory) "Inbox")
-	   "* BUYING %?\n  %U\n  %a\n  %i" :empty-lines 1)
+             
+             ("r" "Roam")
+             ("rr" "Roam task" entry
+                 (file+olp ,(expand-file-name "org-files/Tasks.org" my-org-directory) "Inbox")
+                 "* TODO [#C] roam about %? :@roam:\nSCHEDULED: %^t\n  %U\n  %i"
+                 :empty-lines 1)
 
-	  ("j" "Journal Entries")
-	  ("jj" "Journal" entry
-	   (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
-	   "\n* %<%I:%M %p> - Journal :journal:\n\n%?\n\n"
-	   ;; ,(dw/read-file-as-string "~/Notes/Templates/Daily.org")
-	   :clock-in :clock-resume
-	   :empty-lines 1)
-	  ("jm" "Meeting" entry
-	   (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
-	   "* %<%I:%M %p> - %a :meetings:\n\n%?\n\n"
-	   :clock-in :clock-resume
-	   :empty-lines 1)
+             ("rc" "Roam task with context link" entry
+                 (file+olp ,(expand-file-name "org-files/Tasks.org" my-org-directory) "Inbox")
+                 "* TODO [#C] continue roam on %? :@roam:\nSCHEDULED: %^t\n  %U\n  %a\n  %i"
+                 :empty-lines 1)
 
-	  ("jc" "Journal" entry
-	   (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
-	   "\n* %<%I:%M %p> - Journal :journal:\n%a\n%?\n\n"
-	   ;; ,(dw/read-file-as-string "~/Notes/Templates/Daily.org")
-	   :clock-in :clock-resume
-	   :empty-lines 1)
+	     ("s" "Shopping / Projects")
+	     ("ss" "Shop" entry (file+olp ,(expand-file-name "org-files/Shopping.org"  my-org-directory) "Inbox")
+	         "* BUYING %?\n  %U\n  %a\n  %i" :empty-lines 1)
 
-	  ("w" "Workflows")
-	  ("we" "Checking Email" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
-	   "* Checking Email :email:\n\n%?" :clock-in :clock-resume :empty-lines 1)
-	  ("wt" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
-	   "* WAIT %?\n  %U\n  %i" :empty-lines 1)
-	  ("wc" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
-	   "* TODO %?\n  %U\n  %a\n  %i" :empty-lines 1)
-	  ("wc" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
-	   "* WAIT %?\n  %U\n  %i" :empty-lines 1)
+	     ("j" "Journal Entries")
+	     ("jj" "Journal" entry
+	         (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
+	         "\n* %<%I:%M %p> - %^{Title} :journal:\n\n%?\n\n"
+	         ;; ,(dw/read-file-as-string "~/Notes/Templates/Daily.org")
+	         :clock-in :clock-resume
+	         :empty-lines 1)
+	     ("jm" "Meeting" entry
+	         (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
+	         "* %<%I:%M %p> - %a :meetings:\n\n%?\n\n"
+	         :clock-in :clock-resume
+	         :empty-lines 1)
 
-	  ("v" "Activities")
-	  ("va" "Activities idea" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
-	   "* A-PLAN %? :activities:" :clock-in :clock-resume :empty-lines 1)
+	     ("jc" "Journal with context link" entry
+	         (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
+	         "\n* %<%I:%M %p> - %^{Title} :journal:\n%a\n%?\n\n"
+	         ;; ,(dw/read-file-as-string "~/Notes/Templates/Daily.org")
+	         :clock-in :clock-resume
+	         :empty-lines 1)
 
-	  ("m" "Metrics Capture")
-	  ("mw" "Weight" table-line (file+headline ,(expand-file-name "org-files/Metrics.org" my-org-directory) "Weight")
-	   "| %U | %^{Weight} | %^{Notes} |" :kill-buffer t)
-	  ("ma" "Aim training" table-line (file+headline ,(expand-file-name "org-files/Metrics.org" my-org-directory) "Aim training")
-	   "| %U | %^{Game} | %^{Benchmark} | %^{Scenario} | %^{Best session score} | %^{Actual PB} | %^{Notes} |\n|-" :kill-buffer t)
+             ("jt" "Journal tagged" entry
+                 (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory))
+                 "**** %<%I:%M %p> - %^{Title} :journal:%^G:\n\n%?\n\n"
+                 :clock-in t
+                 :clock-resume t
+                 :empty-lines 1)
+
+	     ("w" "Workflows")
+	     ("we" "Checking Email" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
+	         "* Checking Email :email:\n\n%?" :clock-in :clock-resume :empty-lines 1)
+	     ("wt" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	         "* WAIT %?\n  %U\n  %i" :empty-lines 1)
+	     ("wc" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	         "* TODO %?\n  %U\n  %a\n  %i" :empty-lines 1)
+	     ("ww" "Task" entry (file+olp ,(expand-file-name "org-files/Tasks.org"  my-org-directory) "Inbox")
+	         "* WAIT %?\n  %U\n  %i" :empty-lines 1)
+
+	     ("v" "Activities")
+	     ("va" "Activities idea" entry (file+olp+datetree ,(expand-file-name "org-files/Journal.org" my-org-directory) )
+	         "* A-PLAN %? :activities:" :clock-in :clock-resume :empty-lines 1)
+
+	     ("m" "Metrics Capture")
+	     ("mw" "Weight" table-line (file+headline ,(expand-file-name "org-files/Metrics.org" my-org-directory) "Weight")
+	         "| %U | %^{Weight} | %^{Notes} |" :kill-buffer t)
+	     ("ma" "Aim training" table-line (file+headline ,(expand-file-name "org-files/Metrics.org" my-org-directory) "Aim training")
+	         "| %U | %^{Game} | %^{Benchmark} | %^{Scenario} | %^{Best session score} | %^{Actual PB} | %^{Notes} |\n|-" :kill-buffer t)
              ))
 
-  (define-key global-map (kbd "C-c j")
-	      (lambda () (interactive) (org-capture nil "jj")))
-  (ox/leader-keys
-    "o" '(:ignore t :which-key "org")
-    "oa" '(org-agenda :which-key "open org-agenda")
-    "ot" '(org-todo-list :which-key "open all todo lists")
-    "oc" '(org-capture :which-key "open org-capture")
-    "oi" '(org-id-get-create :which-key "crate an ID for the current entry")
-    "os" '(org-capture-string :which-key "open org-capture-string")
-    "ov" '(visual-fill-column-mode :which-key "visual-fill-column-mode")
-    "oh" '((lambda () (interactive) (find-file (format "%s/org-files/Habits.org" my-org-directory))) :which-key "Open Habits.org")
-      "o C-c" '(org-ctrl-c-ctrl-c :which-key "org-ctrl-c-ctrl-c")
-    "ow" '((lambda () (interactive) (find-file (format "%s/org-files/Metrics.org" my-org-directory))) :which-key "Open Metrics.org")))
+    (define-key global-map (kbd "C-c j")
+	(lambda () (interactive) (org-capture nil "jj")))
+    (ox/leader-keys
+        "o" '(:ignore t :which-key "org")
+        "oa" '(org-agenda :which-key "open org-agenda")
+        "ot" '(org-todo-list :which-key "open all todo lists")
+        "oc" '(org-capture :which-key "open org-capture")
+        "oi" '(org-id-get-create :which-key "crate an ID for the current entry")
+        "os" '(org-capture-string :which-key "open org-capture-string")
+        "ov" '(visual-fill-column-mode :which-key "visual-fill-column-mode")
+        "oh" '((lambda () (interactive) (find-file (format "%s/org-files/Habits.org" my-org-directory))) :which-key "Open Habits.org")
+        "o C-c" '(org-ctrl-c-ctrl-c :which-key "org-ctrl-c-ctrl-c")
+        "ow" '((lambda () (interactive) (find-file (format "%s/org-files/Metrics.org" my-org-directory))) :which-key "Open Metrics.org")))
 
 
 ;; Center the text, and set a max column width to go next line in org mode
 (defun ox/org-mode-visual-fill ()
-  (setq visual-fill-column-width 100
+    (setq visual-fill-column-width 100
 	visual-fill-column-center-text t)
-  (visual-fill-column-mode 1))
+    (visual-fill-column-mode 1))
 
 (use-package visual-fill-column
-  :straight t
-  :hook (org-mode . ox/org-mode-visual-fill))
+    :straight t
+    :hook (org-mode . ox/org-mode-visual-fill))
 #+end_src
 ** Org Superstar
 #+begin_src emacs-lisp
@@ -3104,11 +3123,15 @@ We then had to define the =N= keybinding again once [[(with-eval-after-load 'for
 Allow to create flashcards for the space repetition learning method (Leitner system).
 #+begin_src emacs-lisp
 (use-package org-fc
-  :straight t
+    :straight
+  (org-fc
+   :host github :repo "l3kn/org-fc"
+   :files (:defaults "awk" "demo.org"))
   :after org
   ;; :hook ((org-fc-review-flip-mode org-fc-review-rate-mode) . my-check-org-fc-and-set-evil-state )
+    :custom
+    (org-fc-directories (list (format "%s/org-files" my-org-directory)))
   :config
-  (setq org-fc-directories (list (format "%s/org-files" my-org-directory)))
   (with-eval-after-load 'org
     (define-key org-mode-map (kbd "C-c f") 'org-fc-hydra/body))
   (require 'org-fc-hydra))
