@@ -3646,23 +3646,31 @@ We are using consult-dash as an ui-front end to parse dash-docs
 
 #+end_src
 * SSH
+(setq tramp-shell-prompt-pattern "\\(?:^\\|
+\\)[^]\n#-%>❯]*#?[]#-%>❯][[:blank:]]*")
 #+begin_src emacs-lisp
 (require 'tramp)
 (use-package ssh-config-mode
   :straight t
   :mode (("~/.ssh/config\\'" . ssh-config-mode)
          ("sshd?_config\\'" . ssh-config-mode)))
-(setq tramp-shell-prompt-pattern "\\(?:^\\|
+
+(setq tramp-default-method "sshx"
+      tramp-connection-timeout 20
+      tramp-completion-reread-directory-timeout 30
+      tramp-histfile-override nil
+      tramp-use-ssh-controlmaster-options nil
+      remote-file-name-inhibit-locks t
+      tramp-shell-prompt-pattern "\\(?:^\\|
 \\)[^]\n#-%>❯]*#?[]#-%>❯][[:blank:]]*")
-(setq tramp-histfile-override nil) ;; Don't override zsh history in ssh
-(add-to-list 'tramp-connection-properties
-             (list (regexp-quote "/sshx:ledeb:")
-                   "remote-shell" "/bin/zsh"))
-(add-to-list 'tramp-connection-properties
-             (list (regexp-quote "/sshx:ledeb:")
-                   "remote-shell" "/bin/zsh"))
+
+(dolist (method '("ssh" "sshx"))
+  (add-to-list 'tramp-connection-properties
+               (list (format "/%s:.*:" method)
+                     "remote-shell" "/bin/bash")))
+
 (setq vterm-tramp-shells '(("docker" "/bin/sh")
-			   ("sshx" "/usr/bin/zsh")))
+			   ("sshx" "/usr/bin/bash")))
 (defun ox/ledeb-vterm ()
   "Open vterm in ledeb server"
   (interactive)
