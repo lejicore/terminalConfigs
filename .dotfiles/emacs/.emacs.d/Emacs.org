@@ -4350,10 +4350,26 @@ Tools are grouped into modules. The main library just sets up loading and unload
         (kbd "C-1")
         #'agent-shell-toggle))
     :custom
+    ;; Make ollama cloud works with agent-shell claude code UI
+    (setq agent-shell-anthropic-authentication
+        (agent-shell-anthropic-make-authentication :api-key "ollama"))
+
+  ;; Send Claude Agent CLI to Ollama instead of Anthropic.
+  (setq agent-shell-anthropic-claude-environment
+        (agent-shell-make-environment-variables
+         :inherit-env t
+         "ANTHROPIC_AUTH_TOKEN" "ollama"
+         "ANTHROPIC_BASE_URL" "http://127.0.0.1:11434"
+         "ANTHROPIC_MODEL" "glm-5.2:cloud"
+         "ANTHROPIC_SMALL_FAST_MODEL" "glm-5.2:cloud"))
+
     (agent-shell-mistral-authentication
         (agent-shell-mistral-make-authentication :api-key #'my-mistral-api-key))
     (agent-shell-openai-authentication
         (agent-shell-openai-make-authentication :login t))
+    (add-to-list 'exec-path "~/.opencode/bin/")
+    (agent-shell-opencode-authentication
+        (agent-shell-opencode-make-authentication :api-key #'my-opencode-api-key))
     (agent-shell-mcp-servers
       `(((name . "emacs")
          (command . "python3")
