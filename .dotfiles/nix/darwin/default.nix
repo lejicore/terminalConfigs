@@ -91,6 +91,7 @@ in
       "openssl"
     ];
     casks = [
+      "blackhole-2ch"
       "iterm2"
       "nikitabobko/tap/aerospace"
       "tor-browser"
