@@ -86,6 +86,7 @@ in
   copilot-language-server
   bash-language-server
   asm-lsp
+  shellcheck
   maigret
   ddgr
   eza
