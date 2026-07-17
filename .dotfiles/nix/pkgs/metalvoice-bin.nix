@@ -15,7 +15,8 @@ stdenvNoCC.mkDerivation rec {
 
     # First build will fail and print the correct hash.
     # Replace this with the sha256-... it gives you.
-    hash = lib.fakeHash;
+    #hash = lib.fakeHash;
+    hash = "sha256-D3r/KPXRAZg0xo0WLB37qQaQBAbxVyma9hmSfaW43wo=";
 
     stripRoot = false;
   };
