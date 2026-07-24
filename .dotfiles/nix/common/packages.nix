@@ -102,4 +102,5 @@ in
   gemini-cli
   dbeaver-bin
   pkgconf
+  tailscale
 ]

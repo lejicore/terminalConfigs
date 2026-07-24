@@ -24,6 +24,7 @@ in
   # auto upgrade nix package and the daemon service
 
   #services.nix-daemon.enable = true;
+  services.tailscale.enable = true;
   nix = {
     #package = pkgs.nixVersions.latest;
     package = pkgs.nixVersions.nix_2_28; # for nix-rage compatibility
