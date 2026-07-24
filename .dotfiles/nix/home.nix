@@ -165,7 +165,10 @@ lib.mkMerge [
       syncthing = {
         enable = true;
 
-        passwordFile = "${config.home.homeDirectory}/.passwordFile";
+        guiCredentials = {
+          username = config.rage.syncthingUser;
+          passwordFile = "${config.home.homeDirectory}/.passwordFile";
+        };
 
         overrideDevices = true;
         overrideFolders = true;
@@ -176,10 +179,6 @@ lib.mkMerge [
           };
 
           devices = config.rage.devices;
-
-          gui = {
-            user = config.rage.syncthingUser;
-          };
         };
       };
     };

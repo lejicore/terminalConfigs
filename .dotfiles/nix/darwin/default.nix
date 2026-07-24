@@ -27,7 +27,7 @@ in
   services.tailscale.enable = true;
   nix = {
     #package = pkgs.nixVersions.latest;
-    package = pkgs.nixVersions.nix_2_28; # for nix-rage compatibility
+    package = pkgs.nixVersions.nix_2_31; # for nix-rage compatibility
     settings.trusted-users = [
       "root"
       "@admin"

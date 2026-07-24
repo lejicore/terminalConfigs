@@ -3,13 +3,14 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    supported-systems.url = "path:./systems";
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
     nix-darwin = {
-      url = "github:LnL7/nix-darwin/master";
+      url = "github:nix-darwin/nix-darwin/master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     darwin-networking = {
@@ -22,9 +23,13 @@
     sops-nix.url = "github:Mic92/sops-nix";
     nix-rage = {
       #url = "github:renesat/nix-rage";
-      url = "github:lejicore/nix-rage?ref=fix_darwin";
+      url = "github:lejicore/nix-rage?ref=fix_darwin_again";
       #url = "path:~/dev/nix-rage";
       inputs.nixpkgs.follows = "nixpkgs";
+
+      # nix-rage currently evaluates nix-systems/default, which still contains
+      # the unsupported x86_64-darwin platform.
+      inputs.systems.follows = "supported-systems";
     };
 
     # https://nixos.wiki/wiki/Emacs
@@ -69,6 +74,7 @@
       sops-nix,
       rust-overlay,
       emacs-src,
+      supported-systems,
     }:
     let
       pkg-config = {
@@ -169,13 +175,7 @@
         pkgs = darwin-pkgs;
         system = "aarch64-darwin";
         modules = [
-          {
-            nix.settings.plugin-files = [
-              #"${nix-rage.packages.${darwin-pkgs.system}.default}/lib/libnix_rage.dylib"
-              "${nix-rage.packages.${darwin-system}.default}/lib/libnix_rage${darwin-pkgs.stdenv.hostPlatform.extensions.sharedLibrary}"
-              #"~/test/libnix_rage.dylib"
-            ];
-          }
+          nix-rage.darwinModules.default
           { networking.hostName = rage-hostName; }
           ./secrets.nix
           mac-app-util.darwinModules.default
