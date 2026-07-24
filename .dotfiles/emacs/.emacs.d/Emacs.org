@@ -2201,8 +2201,10 @@ because compile mode is too slow"
  :mode "\\.nix\\'")
 
 (use-package php-ts-mode
-  :straight (:host github
-                   :repo "emacs-php/php-ts-mode"))
+  ;; Emacs 31 provides the current mode.  Do not shadow it with the old
+  ;; standalone package, whose font-lock rules target an older PHP grammar.
+  :straight nil
+  :ensure nil)
 
 (use-package typescript-ts-mode
   :mode "\\.ts\\'"

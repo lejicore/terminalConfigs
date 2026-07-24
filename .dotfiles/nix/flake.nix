@@ -102,6 +102,44 @@
       # and sets up home-manager.users."<secret>"
     in
     {
+      checks.${darwin-system}.php-treesit-compatibility =
+        darwin-pkgs.runCommand "php-treesit-compatibility" { }
+          ''
+            ${darwin-pkgs.emacsLejiWithPackages}/bin/emacs --batch --eval '
+              (progn
+                (defun php-treesit-check--display-warning
+                    (original type message &rest arguments)
+                  (if (eq type (quote treesit-font-lock-rules-mismatch))
+                      (error "PHP tree-sitter compatibility failure: %s" message)
+                    (apply original type message arguments)))
+                (advice-add (quote display-warning) :around
+                            (function php-treesit-check--display-warning))
+                (with-temp-buffer
+                  (insert-file-contents
+                    "${../emacs/.emacs.d/Emacs.org}")
+                  (goto-char (point-min))
+                  (search-forward "(use-package php-ts-mode")
+                  (goto-char (match-beginning 0))
+                  (let* ((form (read (current-buffer)))
+                         (arguments (cddr form)))
+                    (unless (and (memq :straight arguments)
+                                 (null (plist-get arguments :straight)))
+                      (error "Emacs.org must use the built-in php-ts-mode"))))
+                (require (quote php-ts-mode))
+                (unless (treesit-ready-p (quote php))
+                  (error "The PHP tree-sitter grammar is unavailable"))
+                (with-temp-buffer
+                  (insert "<?php\nif (true) { echo 1; }\n?>\n")
+                  (php-ts-mode)
+                  (font-lock-ensure)
+                  (goto-char (point-min))
+                  (search-forward "if")
+                  (unless (eq (get-text-property (1- (point)) (quote face))
+                              (quote font-lock-keyword-face))
+                    (error "PHP keyword font-locking is unavailable"))))'
+            touch "$out"
+          '';
+
       # NixOS system-wide home-manager configuration
       home-manager.sharedModules = [
         inputs.sops-nix.homeManagerModules.sops
