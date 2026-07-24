@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="${HOME}/terminalConfigs"
 ENV_FILE="${ROOT_DIR}/.env"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 resolve_git() {
     local user_git="/etc/profiles/per-user/${USER}/bin/git"
@@ -32,6 +33,7 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 set -a
+# shellcheck source=/dev/null
 . "$ENV_FILE"
 set +a
 
@@ -59,6 +61,14 @@ if [ -z "${1:-}" ]; then
     sudo darwin-rebuild switch --flake "${ROOT_DIR}/.dotfiles/nix#$(hostname)"
 elif [ "$1" = "-s" ]; then
     sudo darwin-rebuild switch --flake "${ROOT_DIR}/.dotfiles/nix#$(hostname)" --show-trace
+elif [ "$1" = "-o" ]; then
+    plugin="$("${SCRIPT_DIR}/bootstrap.sh")"
+    echo "$plugin"
+    sudo darwin-rebuild switch --flake "${ROOT_DIR}/.dotfiles/nix#$(hostname)" --option plugin-files "$plugin/lib/libnix_rage.dylib"
+elif [ "$1" = "-so" ]; then
+    plugin="$("${SCRIPT_DIR}/bootstrap.sh")"
+    echo "$plugin"
+    sudo darwin-rebuild switch --flake "${ROOT_DIR}/.dotfiles/nix#$(hostname)" --option plugin-files "$plugin/lib/libnix_rage.dylib" --show-trace
 else
     echo "Unknown '$1' argument"
     exit 1
