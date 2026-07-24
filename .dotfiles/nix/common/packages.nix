@@ -12,6 +12,7 @@ let
         --prefix DYLD_FALLBACK_LIBRARY_PATH ':' "${imagemagick}/lib"
     '';
   };
+  codex-acp-latest = pkgs.callPackage ../pkgs/codex-acp.nix { };
 in
 [
   home-manager
@@ -93,7 +94,7 @@ in
   hyperfine
   claude-code
   claude-agent-acp
-  codex-acp
+  codex-acp-latest
   socat
   python314Packages.grip
   opencode
