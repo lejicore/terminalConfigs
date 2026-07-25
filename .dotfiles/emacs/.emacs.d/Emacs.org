@@ -3922,7 +3922,16 @@ Each element is of the form:
               (y-or-n-p "Update straight packages now? "))
       (ox/straight-update-all))))
 
-(add-hook 'emacs-startup-hook #'ox/straight-update-maybe)
+(defun ox/straight-update-after-startup ()
+  "Offer a straight update after interactive, non-daemon startup.
+
+A daemon has no usable minibuffer while `emacs-startup-hook' runs.  Prompting
+there can be interrupted by the first emacsclient connection and crash an NS
+Emacs while it unwinds the startup minibuffer."
+  (unless (daemonp)
+    (ox/straight-update-maybe)))
+
+(add-hook 'emacs-startup-hook #'ox/straight-update-after-startup)
 (run-at-time ox/straight-update-prompt-time (* 24 60 60) #'ox/straight-update-maybe)
 #+end_src
 * PowerShell Attempt Configuration
