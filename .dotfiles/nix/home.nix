@@ -108,9 +108,6 @@ lib.mkMerge [
       ".config/kitty" = {
         source = ../kitty/.config/kitty;
       };
-      ".config/nvim" = {
-        source = ../nvim/.config/nvim;
-      };
       "scripts" = {
         source = ../scripts/scripts;
       };
@@ -153,6 +150,9 @@ lib.mkMerge [
         source = ../ueberzugpp/.config/ueberzugpp;
       };
     };
+
+    xdg.configFile."nvim".source =
+      config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/terminalConfigs/.dotfiles/nvim/.config/nvim";
 
     home.activation.decryptPassword = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       ${pkgs.age}/bin/age --decrypt \
