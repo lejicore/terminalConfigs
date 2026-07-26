@@ -1,4 +1,21 @@
 [[ -n $INSIDE_AIDER ]] && return
+
+# TRAMP's plain `ssh' method needs an interactive, line-oriented command shell.
+# Resolve shells through Zsh's command table so Nix/store and other nonstandard
+# installations work without spawning a discovery subprocess.  Bash is the
+# cleanest protocol shell, `sh' is the portable fallback, and a no-rc Zsh is
+# retained only for hosts lacking both.
+if [[ -n $SSH_CONNECTION && ( -z $TERM || $TERM == dumb ) ]]; then
+  unset ENV BASH_ENV
+  if (( $+commands[bash] )); then
+    exec "${commands[bash]}" --noediting --norc --noprofile -i
+  elif (( $+commands[sh] )); then
+    exec "${commands[sh]}" -i
+  elif (( $+commands[zsh] )); then
+    exec "${commands[zsh]}" -f -i
+  fi
+fi
+
 is_socket_x0() {
 if [ -x "/tmp/.X11-unix/X0" ]; then
     echo "Socket X0 running."
