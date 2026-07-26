@@ -1361,9 +1361,11 @@ folder, otherwise delete a word"
   :config
   (setq orderless-matching-styles '(orderless-flex)))
 
-(defun ox/get-project-root ()
-  (when (fboundp 'projectile-project-root)
-    (projectile-project-root)))
+(defun ox/consult-project-root (_may-prompt)
+  "Return a local Projectile root without probing remote directories."
+  (unless (file-remote-p default-directory)
+    (when (fboundp 'projectile-project-root)
+      (projectile-project-root default-directory))))
 
 (use-package consult
   :straight t
@@ -1376,12 +1378,67 @@ folder, otherwise delete a word"
 	 ([remap describe-command]  . helpful-command)
 	 ([remap describe-variable] . helpful-variable)
 	 ([remap describe-function] . helpful-callable)
+	 ([remap find-file]         . ox/find-file-with-preview)
+	 ([remap project-find-file] . ox/project-find-file-with-preview)
 	 :map minibuffer-local-map
 	 ("C-r" . consult-history))
   :custom
-  (consult-project-root-function #'ox/get-project-root)
+  (consult-project-function #'ox/consult-project-root)
   (completion-in-region-function #'consult-completion-in-region)
   :config
+  ;; `treesit-auto' rebuilds every configured remap on each `set-auto-mode'
+  ;; call.  Consult restores this binding after its disposable preview, while
+  ;; the selected file is reopened with the normal tree-sitter configuration.
+  (add-to-list 'consult-preview-variables '(treesit-auto-langs . nil))
+
+  (defun ox/consult-file-completing-read
+      (prompt collection &optional predicate require-match initial-input
+              history default inherit-input-method)
+    "Read a file candidate with a lightweight Consult preview.
+Preserve the caller's completion contract, including non-matching input for
+new files.  Local previews are slightly debounced; remote previews are manual
+on `M-.' so candidate traversal cannot repeatedly block on TRAMP."
+    (let* ((remote (file-remote-p default-directory))
+           ;; Consult itself calls `completing-read'.  Use the default reader
+           ;; there instead of recursively entering this wrapper.
+           (completing-read-function #'completing-read-default)
+           (lightweight-modes
+            (and (boundp 'ox/dirvish-lightweight-preview-modes)
+                 ox/dirvish-lightweight-preview-modes))
+           (consult-preview-variables
+            (cons
+             (cons 'auto-mode-alist
+                   (append lightweight-modes auto-mode-alist))
+             (assq-delete-all
+              'auto-mode-alist consult-preview-variables))))
+      (consult--read
+       collection
+       :prompt prompt
+       :predicate predicate
+       :require-match require-match
+       :initial initial-input
+       :history (if (consp history) (car history) history)
+       :default default
+       :inherit-input-method inherit-input-method
+       :category 'file
+       :state (consult--file-preview)
+       :preview-key (if remote "M-." '(:debounce 0.12 any))
+       :command this-command)))
+
+  (defun ox/find-file-with-preview ()
+    "Run `find-file' with lightweight Consult previews."
+    (interactive)
+    (let ((completing-read-function
+           #'ox/consult-file-completing-read))
+      (call-interactively #'find-file)))
+
+  (defun ox/project-find-file-with-preview ()
+    "Run `project-find-file' with lightweight Consult previews."
+    (interactive)
+    (let ((completing-read-function
+           #'ox/consult-file-completing-read))
+      (call-interactively #'project-find-file)))
+
   ;; Customizing the find command to exclude git and node_modules folders
   (setq consult-find-args "find . -not ( -path */.git -path */node_modules -prune )")
 
@@ -2131,10 +2188,25 @@ To restrict jumps accross persp-mode
 #+end_src
 * Project Management
 #+begin_src emacs-lisp
+(defun ox/project-projectile-local-only (directory)
+  "Use Projectile's project.el backend only for local DIRECTORY."
+  (unless (file-remote-p directory)
+    (project-projectile directory)))
+
+(defun ox/configure-projectile-project-backend ()
+  "Keep Projectile's project.el backend local while `projectile-mode' is active."
+  (remove-hook 'project-find-functions #'project-projectile)
+  (if (bound-and-true-p projectile-mode)
+      (add-hook 'project-find-functions #'ox/project-projectile-local-only)
+    (remove-hook 'project-find-functions #'ox/project-projectile-local-only)))
+
 (use-package projectile
   :straight t
   :diminish projectile-mode
-  :config (projectile-mode)
+  :hook (projectile-mode . ox/configure-projectile-project-backend)
+  :config
+  (projectile-mode)
+  (ox/configure-projectile-project-backend)
   :custom((projectile-completion-system 'ivy))
   :bind-keymap
   ("C-c k" . projectile-command-map)
@@ -3568,16 +3640,116 @@ We are using consult-dash as an ui-front end to parse dash-docs
            subtree-state
            git-msg ;;<-- Shows commit messages
            ))
-    (defun my/dirvish-preview-without-treesit-remap (orig-fn &rest args)
-      "Build Dirvish previews without `treesit-auto' major-mode remapping."
-      (if (and (bound-and-true-p global-treesit-auto-mode)
-               (advice-member-p #'treesit-auto--set-major-remap #'set-auto-mode-0))
-          (unwind-protect
-              (progn
-                (advice-remove #'set-auto-mode-0 #'treesit-auto--set-major-remap)
-                (apply orig-fn args))
-            (advice-add #'set-auto-mode-0 :before #'treesit-auto--set-major-remap))
-        (apply orig-fn args)))
+    (defconst ox/dirvish-php-preview-keywords
+      '("abstract" "and" "array" "as" "break" "callable" "case" "catch"
+        "class" "clone" "const" "continue" "declare" "default" "do" "echo"
+        "else" "elseif" "empty" "enddeclare" "endfor" "endforeach" "endif"
+        "endswitch" "endwhile" "enum" "eval" "exit" "extends" "final"
+        "finally" "fn" "for" "foreach" "from" "function" "global" "goto"
+        "if" "implements" "include" "include_once" "instanceof" "insteadof"
+        "interface" "isset" "list" "match" "namespace" "new" "or" "print"
+        "private" "protected" "public" "readonly" "require" "require_once"
+        "return" "static" "switch" "throw" "trait" "try" "unset" "use"
+        "var" "while" "xor" "yield")
+      "PHP keywords highlighted in lightweight Dirvish previews.")
+
+    (defconst ox/dirvish-php-preview-constants
+      '("true" "false" "null" "__CLASS__" "__DIR__" "__FILE__"
+        "__FUNCTION__" "__LINE__" "__METHOD__" "__NAMESPACE__" "__TRAIT__")
+      "PHP constants highlighted in lightweight Dirvish previews.")
+
+    (defconst ox/dirvish-php-preview-font-lock-keywords
+      `((,(regexp-opt ox/dirvish-php-preview-keywords 'symbols)
+         . font-lock-keyword-face)
+        (,(regexp-opt ox/dirvish-php-preview-constants 'symbols)
+         . font-lock-constant-face)
+        ("\\_<\\(?:class\\|enum\\|interface\\|trait\\)\\_>[[:space:]]+\\([[:alpha:]_][[:alnum:]_]*\\)"
+         1 font-lock-type-face)
+        ("\\_<function\\_>[[:space:]]+&?[[:space:]]*\\([[:alpha:]_][[:alnum:]_]*\\)"
+         1 font-lock-function-name-face)
+        ("\\$[[:alpha:]_][[:alnum:]_]*" . font-lock-variable-name-face)
+        ("<\\?\\(?:php\\|=\\)?" . font-lock-preprocessor-face)
+        ("\\?>" . font-lock-preprocessor-face))
+      "Regex font-lock rules for lightweight PHP previews.")
+
+    (defvar ox/dirvish-php-preview-mode-syntax-table
+      (let ((table (make-syntax-table prog-mode-syntax-table)))
+        (modify-syntax-entry ?_ "w" table)
+        (modify-syntax-entry ?' "\"" table)
+        (modify-syntax-entry ?# "< b" table)
+        (modify-syntax-entry ?\n "> b" table)
+        (modify-syntax-entry ?/ ". 124b" table)
+        (modify-syntax-entry ?* ". 23" table)
+        table)
+      "Syntax table for lightweight PHP previews.")
+
+    (define-derived-mode ox/dirvish-php-preview-mode
+      prog-mode "PHP-Preview"
+      "Cheap syntax highlighting for disposable PHP previews."
+      :syntax-table ox/dirvish-php-preview-mode-syntax-table
+      (setq-local font-lock-defaults
+                  '(ox/dirvish-php-preview-font-lock-keywords nil nil))
+      (setq-local comment-start "// ")
+      (setq-local comment-end ""))
+
+    (defconst ox/dirvish-lightweight-preview-modes
+      '(("\\.\\(?:php[s345]?\\|phtml\\|inc\\|stub\\)\\'"
+         . ox/dirvish-php-preview-mode)
+        ("\\.\\(?:[cm]?js\\|jsx\\|[cm]?ts\\|tsx\\)\\'" . js-mode)
+        ("\\.c\\'" . c-mode))
+      "Lightweight major modes used only for disposable Dirvish previews.")
+
+    (require 'dirvish-widgets)
+
+    (defconst ox/dirvish-unzip-program (executable-find "unzip")
+      "Executable used to list ZIP contents in Dirvish previews.")
+
+    (dirvish-define-preview zip-list (file ext)
+      "Preview the file listing of a ZIP archive."
+      :require ("unzip")
+      (when (equal ext "zip")
+        `(shell . (,ox/dirvish-unzip-program "-l" ,file))))
+
+    (add-to-list 'dirvish-preview-dispatchers 'zip-list)
+    ;; This Dirvish revision validates the archive dispatcher even when its
+    ;; configured 7-Zip executable is nil, then tries to execute nil.  ZIP
+    ;; files are handled above; omit the generic dispatcher until 7z exists.
+    (unless dirvish-7z-program
+      (setq dirvish-preview-dispatchers
+            (delq 'archive dirvish-preview-dispatchers)))
+
+    ;; `dired-next-line' delegates to display-column-aware `line-move'.
+    ;; Dirvish's redisplay overlays can make that motion cross two physical
+    ;; file rows even though both filenames remain visible.  Move by Dired
+    ;; filename entries instead, without changing any visual attributes.
+    (defun ox/dirvish--move-entry (count)
+      "Move point by COUNT visible Dirvish file entries."
+      (let ((step (if (< count 0) -1 1)))
+        (dotimes (_ (abs count))
+          (let ((origin (point))
+                target)
+            (while (and (not target)
+                        (= (forward-line step) 0))
+              (when-let* ((filename (dired-move-to-filename)))
+                (unless (invisible-p filename)
+                  (setq target filename))))
+            (if target
+                (goto-char target)
+              (goto-char origin))))))
+
+    (defun ox/dirvish-next-entry (count)
+      "Move down COUNT visible Dirvish file entries."
+      (interactive "p")
+      (ox/dirvish--move-entry count))
+
+    (defun ox/dirvish-previous-entry (count)
+      "Move up COUNT visible Dirvish file entries."
+      (interactive "p")
+      (ox/dirvish--move-entry (- count)))
+
+    (evil-collection-define-key 'normal 'dirvish-mode-map
+      "j" #'ox/dirvish-next-entry
+      "k" #'ox/dirvish-previous-entry)
 
     (defun my/dirvish-preview-setup ()
       "Disable heavy UI extras in Dirvish preview buffers."
@@ -3589,8 +3761,17 @@ We are using consult-dash as an ui-front end to parse dash-docs
         (when (bound-and-true-p lsp-headerline-breadcrumb-mode)
           (lsp-headerline-breadcrumb-mode -1))))
 
-    (advice-add 'dirvish--preview-file-maybe-truncate :around
-                #'my/dirvish-preview-without-treesit-remap)
+    ;; These variables are dynamically bound only while Dirvish constructs a
+    ;; disposable preview.  Real file buffers keep their normal tree-sitter
+    ;; modes, while previews avoid parser/query initialization.
+    (add-to-list 'dirvish-preview-environment
+                 '(treesit-auto-langs . nil))
+    (setq dirvish-preview-environment
+          (assq-delete-all 'auto-mode-alist dirvish-preview-environment))
+    (add-to-list 'dirvish-preview-environment
+                 (cons 'auto-mode-alist
+                       `(append ',ox/dirvish-lightweight-preview-modes
+                                auto-mode-alist)))
     (add-hook 'dirvish-preview-setup-hook #'my/dirvish-preview-setup)
 
     (global-set-key (kbd "C-c d") 'dirvish)
