@@ -3890,6 +3890,46 @@ We are using consult-dash as an ui-front end to parse dash-docs
       tramp-shell-prompt-pattern "\\(?:^\\|
 \\)[^]\n#-%>❯]*#?[]#-%>❯][[:blank:]]*")
 
+;; Dirvish needs direct asynchronous processes for remote previews.  Keep the
+;; setting connection-local as recommended by TRAMP instead of changing every
+;; remote method globally.
+(connection-local-set-profile-variables
+ 'ox/ssh-direct-async-process
+ '((tramp-direct-async-process . t)))
+(connection-local-set-profiles
+ '(:application tramp :protocol "ssh")
+ 'ox/ssh-direct-async-process)
+
+;; This Emacs 31 snapshot includes `%w' in the SSH login arguments, but its
+;; direct-async path does not expand that placeholder and raises "Invalid
+;; format character: %w".  A direct child runs an explicit remote command, so
+;; it does not need the TERM=dumb login-shell protection used by the persistent
+;; TRAMP connection.  Remove `%w' only in a dynamically copied method while
+;; that child is created; normal SSH connections retain the setting.
+(defun ox/tramp-direct-async-with-compatible-login-args
+    (original &rest arguments)
+  "Run direct SSH processes without this Emacs snapshot's unsupported `%w'."
+  (if (and (tramp-tramp-file-p default-directory)
+           (string= (tramp-file-name-method
+                     (tramp-dissect-file-name default-directory))
+                    "ssh")
+           (ignore-errors (tramp-direct-async-process-p)))
+      (let* ((tramp-methods (copy-tree tramp-methods))
+             (method (assoc "ssh" tramp-methods))
+             (login-cell (assq 'tramp-login-args (cdr method))))
+        (when login-cell
+          (setcar (cdr login-cell)
+                  (delete '("%w") (cadr login-cell))))
+        (apply original arguments))
+    (apply original arguments)))
+
+(unless (advice-member-p
+         #'ox/tramp-direct-async-with-compatible-login-args
+         'tramp-handle-make-process)
+  (advice-add
+   'tramp-handle-make-process :around
+   #'ox/tramp-direct-async-with-compatible-login-args))
+
 ;; Do not override TRAMP's remote shell with a host-specific Bash path.
 ;; Its `/bin/sh' default is the portable control shell and adds no discovery
 ;; round trip.  Interactive VTerm sessions can independently use the account's
