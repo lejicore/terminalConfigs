@@ -4603,6 +4603,37 @@ Tools are grouped into modules. The main library just sets up loading and unload
          (args . (,(expand-file-name "~/.cache/emacs/straight/repos/emacs-mcp-server/mcp-wrapper.py")
                   ,(expand-file-name "~/.cache/emacs/emacs-mcp-server.sock")))
          (env . ())))))
+
+(with-eval-after-load 'agent-shell-openai
+  (setq agent-shell-openai-codex-acp-command
+        '("/Users/nebj/.local/bin/acp-multiplex"
+          "/run/current-system/sw/bin/codex-acp")))
+
+(defun leji/agent-shell-add-multiplex-name (original-function &rest args)
+  "Expose the current agent-shell buffer name to acp-multiplex."
+  (let* ((context-buffer (plist-get args :context-buffer))
+         (name-variable
+          (when (buffer-live-p context-buffer)
+            (format "ACP_MULTIPLEX_NAME=%s"
+                    (buffer-name context-buffer)))))
+    (when name-variable
+      (plist-put
+       args
+       :environment-variables
+       (cons name-variable
+             (plist-get args :environment-variables))))
+    (apply original-function args)))
+
+(with-eval-after-load 'agent-shell
+  (unless
+      (advice-member-p
+       #'leji/agent-shell-add-multiplex-name
+       'agent-shell--make-acp-client)
+    (advice-add
+     'agent-shell--make-acp-client
+     :around
+     #'leji/agent-shell-add-multiplex-name)))
+
   (defun my-mistral-api-key ()
     (let ((auth-info (auth-source-search
 		      :host "api.mistral.ai"
