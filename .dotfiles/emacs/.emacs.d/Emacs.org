@@ -3743,6 +3743,24 @@ We are using consult-dash as an ui-front end to parse dash-docs
 
     (require 'dirvish-widgets)
 
+    ;; Dirvish starts GIFs with a nil `image-animate' limit, which means one
+    ;; pass only.  Loop while the preview image remains displayed; POSITION
+    ;; makes Emacs stop the timer when Dirvish replaces or closes the preview.
+    (dirvish-define-preview gif (file ext)
+      "Preview gif images with animations."
+      (when (equal ext "gif")
+        (let ((gif (dirvish--find-file-temporarily file))
+              (callback
+               (lambda (recipe)
+                 (when-let* ((buffer (cdr recipe))
+                             ((buffer-live-p buffer)))
+                   (with-current-buffer buffer
+                     (when-let* ((image
+                                  (get-char-property 1 'display)))
+                       (image-animate image nil t 1)))))))
+          (run-with-idle-timer 1 nil callback gif)
+          gif)))
+
     (defconst ox/dirvish-unzip-program (executable-find "unzip")
       "Executable used to list ZIP contents in Dirvish previews.")
 
