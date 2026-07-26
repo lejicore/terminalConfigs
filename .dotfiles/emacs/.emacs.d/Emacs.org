@@ -1315,24 +1315,43 @@ folder, otherwise delete a word"
   :hook (git-commit-mode . +cape-git-commit-capf-hook)
   :init
   (defvar +cape-text-capf nil)
+  ;; Kept so re-evaluating this block can remove the old anonymous CAPF from
+  ;; buffers created by earlier versions of this configuration.
   (defvar +cape-lsp-capf nil)
+  (defvar ox/cape-lsp-capf-function nil)
+  (defun ox/lsp-completion-at-point ()
+    "Return LSP completions only when a live server supports them."
+    (when (and (bound-and-true-p lsp-mode)
+               (fboundp 'lsp-feature?)
+               (lsp-feature? "textDocument/completion"))
+      (lsp-completion-at-point)))
+  (defun ox/cape-lsp-capf ()
+    "Run the guarded LSP/Yasnippet/dabbrev CAPF."
+    (when ox/cape-lsp-capf-function
+      (funcall ox/cape-lsp-capf-function)))
   (defun +cape-capf-hook()
     (setq +cape-text-capf
           (or +cape-text-capf
               (cape-capf-super #'yasnippet-capf #'cape-dabbrev)))
-    (setq +cape-lsp-capf
-          (or +cape-lsp-capf
-              (cape-capf-super #'yasnippet-capf #'lsp-completion-at-point #'cape-dabbrev)))
+    (setq ox/cape-lsp-capf-function
+          (cape-capf-super #'yasnippet-capf
+                           #'ox/lsp-completion-at-point
+                           #'cape-dabbrev))
     (let* ((text-capf-mode-p
             (or (derived-mode-p 'lisp-interaction-mode)
                 (derived-mode-p 'emacs-lisp-mode)
 	        (derived-mode-p 'org-mode)
 	        (derived-mode-p 'text-mode)
 	        (derived-mode-p 'makefile-mode)))
-           (primary-capf (if text-capf-mode-p +cape-text-capf +cape-lsp-capf))
+           (primary-capf (if text-capf-mode-p
+                             +cape-text-capf
+                           #'ox/cape-lsp-capf))
            filtered-capfs)
       (dolist (capf completion-at-point-functions)
-        (unless (memq capf (list +cape-text-capf +cape-lsp-capf #'cape-file))
+        (unless (memq capf (list +cape-text-capf
+                                 +cape-lsp-capf
+                                 #'ox/cape-lsp-capf
+                                 #'cape-file))
           (push capf filtered-capfs)))
       (setq-local completion-at-point-functions
                   (append (list primary-capf #'cape-file)
@@ -2511,6 +2530,21 @@ because compile mode is too slow"
   (define-key lsp-mode-map (kbd "C-c C-l") lsp-command-map)
   :config
     (add-to-list 'lsp-language-id-configuration '(asm-mode . "asm"))
+  ;; `lsp-bash--bash-ls-server-command' resolves the system dependency to an
+  ;; absolute remote path.  The subsequent lsp-mode presence check feeds that
+  ;; absolute path back to `executable-find', which cannot resolve it through
+  ;; TRAMP.  Keep the executable name for remote buffers so TRAMP searches its
+  ;; configured remote PATH; leave local resolution unchanged.
+  (defun ox/lsp-bash-remote-command (original)
+    "Return a TRAMP-resolvable Bash language-server command."
+    (if (file-remote-p default-directory)
+        '("bash-language-server" "start")
+      (funcall original)))
+  (with-eval-after-load 'lsp-bash
+    (unless (advice-member-p #'ox/lsp-bash-remote-command
+                             'lsp-bash--bash-ls-server-command)
+      (advice-add 'lsp-bash--bash-ls-server-command
+                  :around #'ox/lsp-bash-remote-command)))
   (setq lsp-clients-kotlin-server-executable "~/builds/kotlin-language-server/server/build/install/server/bin/kotlin-language-server")
   (setq lsp-completion-enable nil)
   (setq lsp-rust-server 'rust-analyzer) ; or 'rls
@@ -3833,12 +3867,13 @@ We are using consult-dash as an ui-front end to parse dash-docs
 \\)[^]\n#-%>❯]*#?[]#-%>❯][[:blank:]]*")
 #+begin_src emacs-lisp
 (require 'tramp)
+(add-to-list 'tramp-remote-path "~/.nix-profile/bin")
 (use-package ssh-config-mode
   :straight t
   :mode (("~/.ssh/config\\'" . ssh-config-mode)
          ("sshd?_config\\'" . ssh-config-mode)))
 
-(setq tramp-default-method "sshx"
+(setq tramp-default-method "ssh"
       tramp-connection-timeout 20
       tramp-completion-reread-directory-timeout 30
       tramp-histfile-override nil
@@ -3847,13 +3882,13 @@ We are using consult-dash as an ui-front end to parse dash-docs
       tramp-shell-prompt-pattern "\\(?:^\\|
 \\)[^]\n#-%>❯]*#?[]#-%>❯][[:blank:]]*")
 
-(dolist (method '("ssh" "sshx"))
-  (add-to-list 'tramp-connection-properties
-               (list (format "/%s:.*:" method)
-                     "remote-shell" "/bin/bash")))
-
+;; Do not override TRAMP's remote shell with a host-specific Bash path.
+;; Its `/bin/sh' default is the portable control shell and adds no discovery
+;; round trip.  Interactive VTerm sessions can independently use the account's
+;; real login shell, with TRAMP's shell as the built-in fallback.
 (setq vterm-tramp-shells '(("docker" "/bin/sh")
-			   ("sshx" "/usr/bin/bash")))
+                           ("ssh" login-shell)
+                           ("sshx" login-shell)))
 (defun ox/ledeb-vterm ()
   "Open vterm in ledeb server"
   (interactive)
