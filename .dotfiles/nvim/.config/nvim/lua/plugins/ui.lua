@@ -1,4 +1,4 @@
--- The noice variable is responsible to activate noice.nvim
+-- The noice variable is responsible to activate noice.nvimui.
 -- if noice.nvim is activated we will want to enable nvim-notify,
 -- and customise lualine with lualine-so-fancy.nvim
 local noice = false;
@@ -268,11 +268,16 @@ return {
     end
   },
 
-  -- color highlither for css
-  {'norcalli/nvim-colorizer.lua',
-    config = function()
-      require 'colorizer'.setup()
-    end
+  -- -- color highlither for css
+  -- {'norcalli/nvim-colorizer.lua',
+  --   config = function()
+  --     require 'colorizer'.setup()
+  --   end
+  -- },
+  {
+    "catgoose/nvim-colorizer.lua",
+    event = { "BufReadPre", "BufNewFile" },
+    opts = {},
   },
   {
     'isobit/vim-caddyfile',

@@ -4,7 +4,7 @@ return {
   lazy = false,
   version = "*",
   build = ":Neorg sync-parsers",
-  dependencies = { "nvim-lua/plenary.nvim", 'hrsh7th/nvim-cmp', 'luarocks.nvim' },
+  dependencies = { "nvim-lua/plenary.nvim", 'hrsh7th/nvim-cmp', 'luarocks.nvim', 'nvim-treesitter/nvim-treesitter' },
   config = function()
     require('neorg').setup {
       load = {

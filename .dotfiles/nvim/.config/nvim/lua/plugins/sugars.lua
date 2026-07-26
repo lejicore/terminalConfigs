@@ -110,8 +110,9 @@ return {
   },
 
   {
-    'phaazon/hop.nvim',
-    branch = 'v1', -- optional but strongly recommended
+    'smoka7/hop.nvim',
+    --branch = 'v1', -- optional but strongly recommended
+    version = "*",
     opts = {
       keys = 'etovxqpdygfblzhckisuran'
     },

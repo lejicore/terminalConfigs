@@ -1,5 +1,6 @@
 return {
   "nvim-treesitter/nvim-treesitter",
+  branch = "master",
   lazy = false,
   build = ":TSUpdate",
   dependencies = {
@@ -14,6 +15,9 @@ return {
     end
 
     require('nvim-treesitter.configs').setup {
+      modules = {},
+      sync_install = false,
+      ignore_install = {},
       -- Add languages to be installed here that you want installed for treesitter
       ensure_installed = { 'c', 'cpp', 'go', 'lua', 'python', 'rust', 'typescript', 'php', 'html', 'css', 'javascript', 'latex', 'bash', 'regex', 'markdown', 'markdown_inline', 'java', 'vim', 'vimdoc', 'angular', 'norg'},
       parser_install_dir = parser_install_dir,
