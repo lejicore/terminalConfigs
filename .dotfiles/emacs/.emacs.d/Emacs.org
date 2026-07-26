@@ -4721,54 +4721,66 @@ Sensitive-file and sensitive-buffer protections remain enabled."
     (message "ACP mobile keep-awake period %s"
              (string-trim event))))
 
-(defun leji/acp-mobile-keep-awake (duration unit)
-  "Keep this Mac reachable for ACP mobile for DURATION in UNIT.
-UNIT must be either `minutes' or `hours'.  When another keep-awake period is
-already active, offer to replace it."
+(defun leji/acp-mobile--stop-caffeinate ()
+  "Stop the tracked ACP mobile caffeinate process.
+Return non-nil when a live process was stopped."
+  (when (process-live-p leji/acp-mobile-caffeinate-process)
+    (let ((process leji/acp-mobile-caffeinate-process))
+      (setq leji/acp-mobile-caffeinate-process nil)
+      (set-process-sentinel process #'ignore)
+      (delete-process process)
+      t)))
+
+(defun leji/acp-mobile-keep-awake (&optional duration unit)
+  "Toggle whether this Mac is kept reachable for ACP mobile.
+When inactive, keep the Mac awake for one hour by default.  With a prefix
+argument, prompt for DURATION and UNIT, which must be either `minutes' or
+`hours'.  Programmatic callers may pass DURATION and UNIT directly.  When
+already active, stop immediately and restore normal macOS sleep behavior."
   (interactive
    (progn
      (unless (eq system-type 'darwin)
        (user-error "ACP mobile keep-awake is available only on macOS"))
-     (list
-      (read-number "Keep Mac awake for: " 90)
-      (intern
-       (completing-read
-        "Unit: " '("minutes" "hours") nil t nil nil "minutes")))))
+     (if (or (process-live-p leji/acp-mobile-caffeinate-process)
+             (not current-prefix-arg))
+         (list nil nil)
+       (list
+        (read-number "Keep Mac awake for: " 1)
+        (intern
+         (completing-read
+          "Unit: " '("minutes" "hours") nil t nil nil "hours"))))))
   (unless (eq system-type 'darwin)
     (user-error "ACP mobile keep-awake is available only on macOS"))
-  (unless (> duration 0)
-    (user-error "Duration must be greater than zero"))
-  (let* ((multiplier
-          (pcase unit
-            ('minutes 60)
-            ('hours 3600)
-            (_ (user-error "Unit must be minutes or hours"))))
-         (seconds (ceiling (* duration multiplier))))
-    (when (process-live-p leji/acp-mobile-caffeinate-process)
-      (unless (yes-or-no-p "Replace the active ACP mobile keep-awake period? ")
-        (user-error "Existing keep-awake period left unchanged"))
-      (delete-process leji/acp-mobile-caffeinate-process))
-    (setq leji/acp-mobile-caffeinate-process
-          (make-process
-           :name "acp-mobile-caffeinate"
-           :command
-           (list "/usr/bin/caffeinate" "-dimsu" "-t"
-                 (number-to-string seconds))
-           :noquery t
-           :sentinel #'leji/acp-mobile--caffeinate-sentinel))
-    (message "Keeping this Mac reachable for ACP mobile for %g %s"
-             duration unit)))
+  (if (leji/acp-mobile--stop-caffeinate)
+      (message "ACP mobile keep-awake disabled; normal macOS sleep restored")
+    (setq duration (or duration 1)
+          unit (or unit 'hours))
+    (unless (> duration 0)
+      (user-error "Duration must be greater than zero"))
+    (let* ((multiplier
+            (pcase unit
+              ('minutes 60)
+              ('hours 3600)
+              (_ (user-error "Unit must be minutes or hours"))))
+           (seconds (ceiling (* duration multiplier))))
+      (setq leji/acp-mobile-caffeinate-process
+            (make-process
+             :name "acp-mobile-caffeinate"
+             :command
+             (list "/usr/bin/caffeinate" "-dimsu" "-t"
+                   (number-to-string seconds))
+             :noquery t
+             :sentinel #'leji/acp-mobile--caffeinate-sentinel))
+      (message "Keeping this Mac reachable for ACP mobile for %g %s"
+               duration unit))))
 
 (defun leji/acp-mobile-stop-keeping-awake ()
   "Stop the active ACP mobile keep-awake period."
   (interactive)
   (unless (eq system-type 'darwin)
     (user-error "ACP mobile keep-awake is available only on macOS"))
-  (if (process-live-p leji/acp-mobile-caffeinate-process)
-      (progn
-        (delete-process leji/acp-mobile-caffeinate-process)
-        (setq leji/acp-mobile-caffeinate-process nil)
-        (message "Stopped the ACP mobile keep-awake period"))
+  (if (leji/acp-mobile--stop-caffeinate)
+      (message "Stopped the ACP mobile keep-awake period")
     (user-error "No ACP mobile keep-awake period is active")))
 
   (defun my-mistral-api-key ()
