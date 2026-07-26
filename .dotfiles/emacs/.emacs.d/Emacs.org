@@ -1699,6 +1699,14 @@ the correct way of doing it is to create our own prompt regexp system see: [[(de
     :defer 0
     :after (general which-key)
     :config
+    ;; TRAMP's control shell gives LC_CTYPE a literal pair of quote characters
+    ;; to keep its protocol locale-neutral.  A remote VTerm otherwise passes it to
+    ;; the interactive shell, which makes Bash emit a setlocale warning.
+    ;; A name-only process environment entry unsets the variable; the remote
+    ;; shell then uses its valid LANG/LC_ALL locale without host-specific paths
+    ;; or locale discovery.
+    (add-to-list 'vterm-environment "LC_CTYPE")
+
     ;; Make C-h deleting correctly backward
     ;; Without it either start help in Emacs mode
     ;; Or erroring for buffer in read-only in Evil mode
