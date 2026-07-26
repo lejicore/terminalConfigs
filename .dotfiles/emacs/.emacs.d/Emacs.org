@@ -4561,8 +4561,36 @@ Tools are grouped into modules. The main library just sets up loading and unload
 (use-package mcp-server
     :straight (:type git :host github :repo "rhblind/emacs-mcp-server"
                   :files ("*.el" "tools/*.el" "mcp-wrapper.py" "mcp-wrapper.sh"))
+    :init
+    (defconst ox/mcp-server-unattended-allowed-functions
+      '(directory-files
+        directory-files-recursively
+        dired
+        find-file
+        find-file-noselect
+        insert-file-contents
+        view-file
+        with-current-buffer)
+      "Emacs operations MCP may use without prompting.
+Keep process execution, networking, deletion, and credential access outside
+this allowlist.")
     :config
     (add-hook 'emacs-startup-hook #'mcp-server-start-unix)
+    (setq mcp-server-security-allowed-dangerous-functions
+          (copy-sequence ox/mcp-server-unattended-allowed-functions))
+
+    (define-minor-mode ox/mcp-server-unattended-mode
+      "Let MCP work without waiting for Emacs permission prompts.
+Operations in `ox/mcp-server-unattended-allowed-functions' remain allowed.
+Other dangerous operations fail closed instead of opening a minibuffer prompt.
+Sensitive-file and sensitive-buffer protections remain enabled."
+      :global t
+      :group 'mcp-server
+      (setq mcp-server-security-prompt-for-permissions
+            (not ox/mcp-server-unattended-mode))
+      (mcp-server-security-clear-permissions)
+      (message "Emacs MCP unattended mode %s"
+               (if ox/mcp-server-unattended-mode "enabled" "disabled")))
     :custom
     (mcp-server-security-prompt-for-permissions t))
 #+end_src
