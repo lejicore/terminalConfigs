@@ -445,17 +445,24 @@ Each binding is (SYMBOL OWNER SEQUENCE BACKEND)."
 
 (ert-deftest ox-workspace-perspective-for-window-prefers-window-then-frame ()
   (let ((window (selected-window))
-        window-perspective)
+        window-perspective
+        window-perspective-set-p)
     (cl-letf (((symbol-function 'get-window-persp)
                (lambda (given-window)
                  (should (eq given-window window))
                  window-perspective))
+              ((symbol-function 'window-persp-set-p)
+               (lambda (given-window)
+                 (should (eq given-window window))
+                 window-perspective-set-p))
               ((symbol-function 'get-frame-persp)
                (lambda (frame)
                  (should (eq frame (window-frame window)))
                  'frame-perspective)))
       (should (eq (ox-workspace-perspective-for-window window)
                   'frame-perspective))
+      (setq window-perspective-set-p t)
+      (should-not (ox-workspace-perspective-for-window window))
       (setq window-perspective 'window-perspective)
       (should (eq (ox-workspace-perspective-for-window window)
                   'window-perspective)))))
@@ -467,6 +474,10 @@ Each binding is (SYMBOL OWNER SEQUENCE BACKEND)."
           (ox-buffer-navigation--history (make-hash-table :test #'equal)))
       (puthash "A" two ox-terminal--last-used)
       (puthash "A" (list (current-buffer)) ox-buffer-navigation--history)
+      (with-current-buffer one
+        (setq-local ghostel-buffer-name-function nil)
+        (setq-local ghostel--managed-buffer-name
+                    "*ox-ghostel-bootstrap-1*"))
       (dolist (buffer (list one two))
         (with-current-buffer buffer
           (add-hook 'kill-buffer-hook
@@ -478,6 +489,8 @@ Each binding is (SYMBOL OWNER SEQUENCE BACKEND)."
       (should-not (gethash "A" ox-terminal--last-used))
       (should-not (gethash "A" ox-terminal--registry))
       (should-not (gethash "A" ox-buffer-navigation--history))
+      (should-not (local-variable-p 'ghostel-buffer-name-function one))
+      (should-not (local-variable-p 'ghostel--managed-buffer-name one))
       (dolist (buffer (list one two))
         (should-not (buffer-local-value 'ox-terminal-managed-p buffer))
         (with-current-buffer buffer

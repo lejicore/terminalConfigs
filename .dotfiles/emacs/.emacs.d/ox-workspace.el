@@ -16,6 +16,7 @@
 (declare-function persp-switch "persp-mode" (name &optional frame window called-interactively-p))
 (declare-function set-persp-parameter "persp-mode" (param-name &optional value persp))
 (declare-function tramp-file-name-host "tramp" (vec))
+(declare-function window-persp-set-p "persp-mode" (&optional window))
 
 (defgroup ox-workspace nil
   "Perspective-backed workspaces."
@@ -35,13 +36,22 @@
 
 (defun ox-workspace-perspective-for-window (window)
   "Return the perspective associated with WINDOW and its frame.
-Prefer an explicit window-local perspective, then the window's frame
-perspective."
+Prefer an explicit window-local perspective, including the nil perspective,
+then the window's frame perspective."
   (when (window-live-p window)
-    (or (and (fboundp 'get-window-persp)
-             (get-window-persp window))
-        (and (fboundp 'get-frame-persp)
-             (get-frame-persp (window-frame window))))))
+    (let ((window-perspective
+           (and (fboundp 'get-window-persp)
+                (get-window-persp window))))
+      (cond
+       ;; `get-window-persp' returns nil both when there is no override and
+       ;; when the override is persp-mode's nil/none perspective.  This public
+       ;; predicate preserves that distinction.
+       ((and (fboundp 'window-persp-set-p)
+             (window-persp-set-p window))
+        window-perspective)
+       (window-perspective window-perspective)
+       ((fboundp 'get-frame-persp)
+        (get-frame-persp (window-frame window)))))))
 
 (cl-defun ox-workspace-perspective-name
     (&optional (perspective (ox-workspace-current-perspective)))

@@ -15,6 +15,7 @@
 (defvar ghostel-buffer-name)
 (defvar ghostel-buffer-name-function)
 (defvar ghostel-exit-functions)
+(defvar ghostel--managed-buffer-name)
 (defvar ghostel--process)
 (defvar vterm-exit-functions)
 (declare-function ghostel "ghostel" (&optional arg))
@@ -573,6 +574,23 @@ re-evaluating old and new configuration blocks cannot accumulate icons."
   "Refresh terminal modeline state after a perspective change."
   (force-mode-line-update t))
 
+(defun ox-terminal--de-adopt-buffer (buffer)
+  "Remove manager ownership from BUFFER without killing it."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (setq-local ox-terminal-managed-p nil)
+      (remove-hook 'kill-buffer-hook
+                   #'ox-terminal--cleanup-current-buffer t)
+      ;; Managed Ghostel buffers disable title-driven naming.  Restore the
+      ;; inherited Ghostel behavior when the buffer survives its perspective.
+      (when (eq ox-terminal-backend 'ghostel)
+        (kill-local-variable 'ghostel-buffer-name-function)
+        ;; The manager manually renamed this buffer.  Ghostel otherwise treats
+        ;; that as a user rename and refuses subsequent title-based renaming.
+        ;; Clearing its remembered managed name lets the next OSC title or
+        ;; directory update claim the buffer name again.
+        (kill-local-variable 'ghostel--managed-buffer-name)))))
+
 (defun ox-terminal--perspective-killing (perspective)
   "Discard managed terminal state for PERSPECTIVE before it is killed."
   (when-let* ((owner-id (ox-workspace-id perspective t)))
@@ -583,11 +601,7 @@ re-evaluating old and new configuration blocks cannot accumulate icons."
     ;; orphaned manager-owned terminals after their workspace disappears.
     (dolist (buffer (copy-sequence
                      (gethash owner-id ox-terminal--registry)))
-      (when (buffer-live-p buffer)
-        (with-current-buffer buffer
-          (setq-local ox-terminal-managed-p nil)
-          (remove-hook 'kill-buffer-hook
-                       #'ox-terminal--cleanup-current-buffer t))))
+      (ox-terminal--de-adopt-buffer buffer))
     (remhash owner-id ox-terminal--rename-timers)
     (remhash owner-id ox-terminal--last-used)
     (remhash owner-id ox-terminal--registry)
