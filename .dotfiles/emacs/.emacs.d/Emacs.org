@@ -279,6 +279,7 @@ We use the no-littering package to keep folders where we edit files and the Emac
 		treemacs-mode-hook
 		reader-mode-hook
 		doc-view-mode-hook
+                ghostel-mode-hook
 		compilation-mode-hook))
   (add-hook mode (lambda () (display-line-numbers-mode 0))))
 
