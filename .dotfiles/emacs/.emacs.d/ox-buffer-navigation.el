@@ -67,12 +67,16 @@
                     (frame-selected-window frame)
                   (selected-window))))
     (when (window-live-p window)
-      (ox-buffer-navigation-record-buffer (window-buffer window)))))
+      (ox-buffer-navigation-record-buffer
+       (window-buffer window)
+       (ox-workspace-perspective-for-window window)))))
 
 (defun ox-buffer-navigation-track-window-buffer (window)
   "Record the editing buffer displayed by changed WINDOW."
   (when (window-live-p window)
-    (ox-buffer-navigation-record-buffer (window-buffer window))))
+    (ox-buffer-navigation-record-buffer
+     (window-buffer window)
+     (ox-workspace-perspective-for-window window))))
 
 (defun ox-buffer-navigation--window-candidate (window perspective)
   "Return WINDOW's most recent editing buffer for PERSPECTIVE."
@@ -146,6 +150,10 @@ Outside a terminal, preserve Evil/Emacs alternate-buffer behavior."
         (puthash owner-id history ox-buffer-navigation--history)
       (remhash owner-id ox-buffer-navigation--history))
     (car history)))
+
+(defun ox-buffer-navigation-forget-owner (owner-id)
+  "Discard editing-buffer history belonging to OWNER-ID."
+  (remhash owner-id ox-buffer-navigation--history))
 
 (add-hook 'window-selection-change-functions
           #'ox-buffer-navigation-track-selected-buffer)

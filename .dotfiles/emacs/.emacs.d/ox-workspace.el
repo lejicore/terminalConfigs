@@ -11,6 +11,8 @@
 (require 'subr-x)
 
 (declare-function delete-persp-parameter "persp-mode" (param-name &optional persp))
+(declare-function get-frame-persp "persp-mode" (&optional frame))
+(declare-function get-window-persp "persp-mode" (&optional window))
 (declare-function persp-switch "persp-mode" (name &optional frame window called-interactively-p))
 (declare-function set-persp-parameter "persp-mode" (param-name &optional value persp))
 (declare-function tramp-file-name-host "tramp" (vec))
@@ -30,6 +32,16 @@
    ((fboundp 'get-current-persp) (get-current-persp))
    ((fboundp 'get-frame-persp) (get-frame-persp))
    (t nil)))
+
+(defun ox-workspace-perspective-for-window (window)
+  "Return the perspective associated with WINDOW and its frame.
+Prefer an explicit window-local perspective, then the window's frame
+perspective."
+  (when (window-live-p window)
+    (or (and (fboundp 'get-window-persp)
+             (get-window-persp window))
+        (and (fboundp 'get-frame-persp)
+             (get-frame-persp (window-frame window))))))
 
 (cl-defun ox-workspace-perspective-name
     (&optional (perspective (ox-workspace-current-perspective)))

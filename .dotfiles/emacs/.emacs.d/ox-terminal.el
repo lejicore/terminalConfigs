@@ -23,6 +23,7 @@
 (declare-function multi-vterm "multi-vterm" ())
 (declare-function delete-persp-parameter "persp-mode" (param-name &optional persp))
 (declare-function ox-buffer-navigation-switch-to-editing-buffer "ox-buffer-navigation" ())
+(declare-function ox-buffer-navigation-forget-owner "ox-buffer-navigation" (owner-id))
 (declare-function set-persp-parameter "persp-mode" (param-name &optional value persp))
 (declare-function vterm-send-return "vterm" ())
 (declare-function vterm-send-string "vterm" (string &optional paste-p))
@@ -400,7 +401,9 @@ from colliding while human-readable workspace names remain visible."
 
 (defun ox-terminal--backend-exited (buffer _event)
   "Clean up managed terminal BUFFER after a backend process exit EVENT."
-  (when (ox-terminal-managed-buffer-p buffer)
+  (when (and buffer
+             (buffer-live-p buffer)
+             (ox-terminal-managed-buffer-p buffer))
     (ox-terminal--cleanup-buffer buffer)))
 
 (defun ox-terminal-create (&optional backend directory)
@@ -571,13 +574,25 @@ re-evaluating old and new configuration blocks cannot accumulate icons."
   (force-mode-line-update t))
 
 (defun ox-terminal--perspective-killing (perspective)
-  "Cancel pending rename work for PERSPECTIVE before it is killed."
-  (when-let* ((owner-id (ox-workspace-id perspective t))
-              (timer (gethash owner-id ox-terminal--rename-timers)))
-    (when (timerp timer) (cancel-timer timer))
+  "Discard managed terminal state for PERSPECTIVE before it is killed."
+  (when-let* ((owner-id (ox-workspace-id perspective t)))
+    (when-let* ((timer (gethash owner-id ox-terminal--rename-timers)))
+      (when (timerp timer) (cancel-timer timer)))
+    ;; `persp-kill-without-buffers' removes buffers from the perspective but
+    ;; deliberately leaves them alive.  De-adopt them so they cannot remain
+    ;; orphaned manager-owned terminals after their workspace disappears.
+    (dolist (buffer (copy-sequence
+                     (gethash owner-id ox-terminal--registry)))
+      (when (buffer-live-p buffer)
+        (with-current-buffer buffer
+          (setq-local ox-terminal-managed-p nil)
+          (remove-hook 'kill-buffer-hook
+                       #'ox-terminal--cleanup-current-buffer t))))
     (remhash owner-id ox-terminal--rename-timers)
     (remhash owner-id ox-terminal--last-used)
-    (remhash owner-id ox-terminal--registry)))
+    (remhash owner-id ox-terminal--registry)
+    (when (fboundp 'ox-buffer-navigation-forget-owner)
+      (ox-buffer-navigation-forget-owner owner-id))))
 
 (defun ox-terminal--perspective-renamed (perspective _old-name new-name)
   "Refresh terminal display names after PERSPECTIVE becomes NEW-NAME."
