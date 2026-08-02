@@ -7,5 +7,10 @@
 !early-init.el
 !vterm-renamer.el
 !delete-buffer-respect-vterm.el
+!ox-workspace.el
+!ox-terminal.el
+!ox-buffer-navigation.el
+!tests/
+!tests/**
 !snippets
 !.gitignore
