@@ -4668,7 +4668,7 @@ Sensitive-file and sensitive-buffer protections remain enabled."
     (with-eval-after-load 'evil
         (evil-define-key '(visual insert normal)
         global-map
-        (kbd "C-1")
+        (kbd "C-`")
         #'agent-shell-toggle))
     :custom
     ;; Make ollama cloud works with agent-shell claude code UI
