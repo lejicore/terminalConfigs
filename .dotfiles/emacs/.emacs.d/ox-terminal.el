@@ -14,7 +14,9 @@
 
 (defvar ghostel-buffer-name)
 (defvar ghostel-buffer-name-function)
+(defvar ghostel-exit-functions)
 (defvar ghostel--process)
+(defvar vterm-exit-functions)
 (declare-function ghostel "ghostel" (&optional arg))
 (declare-function ghostel-send-key "ghostel" (key-name &optional mods))
 (declare-function ghostel-send-string "ghostel" (string))
@@ -44,9 +46,11 @@
 (defvar-local ox-terminal-owner-name nil)
 (defvar-local ox-terminal-id nil)
 (defvar-local ox-terminal-created-sequence nil)
+(defvar-local ox-terminal--lifecycle-cleaned-p nil)
 
 (defvar ox-terminal--creation-sequence 0)
 (defvar ox-terminal--backends nil)
+(defvar ox-terminal--registry (make-hash-table :test #'equal))
 (defvar ox-terminal--rename-timers (make-hash-table :test #'equal))
 (defvar ox-terminal--last-used (make-hash-table :test #'equal))
 
@@ -106,29 +110,51 @@ This classification includes unmanaged backend buffers but excludes Eshell."
   "Return live managed terminals owned by PERSPECTIVE in creation order.
 When PERSPECTIVE is omitted use the current perspective.  This is the only
 authoritative terminal collection and ordering function."
-  (let ((owner-id (ox-terminal--owner-id perspective)))
-    (sort
-     (cl-remove-if-not
-      (lambda (buffer)
-        (and (ox-terminal-live-p buffer)
-             (equal owner-id
-                    (buffer-local-value 'ox-terminal-owner-id buffer))))
-      (buffer-list))
-     (lambda (left right)
-       (< (buffer-local-value 'ox-terminal-created-sequence left)
-          (buffer-local-value 'ox-terminal-created-sequence right))))))
+  (when-let* ((owner-id (ox-workspace-id perspective t)))
+    (ox-terminal--buffers-for-owner owner-id)))
+
+(defun ox-terminal--register-buffer (buffer)
+  "Register managed terminal BUFFER under its recorded owner."
+  (when (ox-terminal-managed-buffer-p buffer)
+    (let* ((owner-id (buffer-local-value 'ox-terminal-owner-id buffer))
+           (buffers (gethash owner-id ox-terminal--registry)))
+      (puthash owner-id (cons buffer (delq buffer buffers))
+               ox-terminal--registry)))
+  buffer)
+
+(defun ox-terminal--unregister-buffer (buffer owner-id)
+  "Remove BUFFER from OWNER-ID's managed terminal registry."
+  (let ((buffers (delq buffer (gethash owner-id ox-terminal--registry))))
+    (if buffers
+        (puthash owner-id buffers ox-terminal--registry)
+      (remhash owner-id ox-terminal--registry))))
+
+(defun ox-terminal--rebuild-registry ()
+  "Rebuild managed terminal registry once after loading this module.
+This preserves live managed terminals when the implementation is reloaded;
+normal collection never scans the global buffer list."
+  (clrhash ox-terminal--registry)
+  (dolist (buffer (buffer-list))
+    (when (ox-terminal-managed-buffer-p buffer)
+      (ox-terminal--register-buffer buffer))))
 
 (defun ox-terminal--buffers-for-owner (owner-id)
   "Return canonical terminal list for OWNER-ID without current-perspective use."
-  (sort
-   (cl-remove-if-not
-    (lambda (buffer)
-      (and (ox-terminal-live-p buffer)
-           (equal owner-id (buffer-local-value 'ox-terminal-owner-id buffer))))
-    (buffer-list))
-   (lambda (left right)
-     (< (buffer-local-value 'ox-terminal-created-sequence left)
-        (buffer-local-value 'ox-terminal-created-sequence right)))))
+  (let ((buffers
+         (sort
+          (cl-remove-if-not
+           (lambda (buffer)
+             (and (ox-terminal-live-p buffer)
+                  (equal owner-id
+                         (buffer-local-value 'ox-terminal-owner-id buffer))))
+           (copy-sequence (gethash owner-id ox-terminal--registry)))
+          (lambda (left right)
+            (< (buffer-local-value 'ox-terminal-created-sequence left)
+               (buffer-local-value 'ox-terminal-created-sequence right))))))
+    (if buffers
+        (puthash owner-id buffers ox-terminal--registry)
+      (remhash owner-id ox-terminal--registry))
+    buffers))
 
 (cl-defun ox-terminal-count
     (&optional (perspective (ox-workspace-current-perspective)))
@@ -289,16 +315,26 @@ accessor."
              (buffer-local-value 'ox-terminal-owner-name (car buffers)))
         "workspace")))
 
-(defun ox-terminal--final-name (owner-name slot)
-  "Return neutral dense terminal name for OWNER-NAME and SLOT."
-  (format "*%s-terminal*<%d>" (ox-terminal--sanitize-name owner-name) slot))
+(defun ox-terminal--owner-name-token (owner-id)
+  "Return a short stable display token derived from OWNER-ID."
+  (substring (md5 owner-id) 0 6))
+
+(defun ox-terminal--final-name (owner-name owner-id slot)
+  "Return neutral dense terminal name for OWNER-NAME, OWNER-ID and SLOT.
+The owner token prevents distinct perspective names that sanitize identically
+from colliding while human-readable workspace names remain visible."
+  (format "*%s-%s-terminal*<%d>"
+          (ox-terminal--sanitize-name owner-name)
+          (ox-terminal--owner-name-token owner-id)
+          slot))
 
 (defun ox-terminal-renumber-owner (owner-id)
   "Densely rename terminals owned by OWNER-ID using a collision-safe pass."
   (let* ((buffers (ox-terminal--buffers-for-owner owner-id))
          (owner-name (ox-terminal--owner-display-name owner-id buffers))
          (final-names (cl-loop for slot from 1 to (length buffers)
-                               collect (ox-terminal--final-name owner-name slot))))
+                               collect (ox-terminal--final-name
+                                        owner-name owner-id slot))))
     (cl-loop for name in final-names
              for occupant = (get-buffer name)
              when (and occupant (not (memq occupant buffers)))
@@ -328,16 +364,44 @@ accessor."
                         #'ox-terminal--run-scheduled-renumber owner-id)
            ox-terminal--rename-timers))
 
+(defun ox-terminal--nearest-survivor (buffers sequence)
+  "Return the terminal in BUFFERS nearest to dying terminal SEQUENCE."
+  (or (cl-find-if
+       (lambda (buffer)
+         (> (buffer-local-value 'ox-terminal-created-sequence buffer) sequence))
+       buffers)
+      (car (last buffers))))
+
+(defun ox-terminal--cleanup-buffer (buffer)
+  "Run owner-specific lifecycle cleanup for managed terminal BUFFER once."
+  (when (and (buffer-live-p buffer)
+             (buffer-local-value 'ox-terminal-managed-p buffer)
+             (not (buffer-local-value
+                   'ox-terminal--lifecycle-cleaned-p buffer)))
+    (with-current-buffer buffer
+      (setq ox-terminal--lifecycle-cleaned-p t)
+      (let ((owner-id ox-terminal-owner-id)
+            (sequence ox-terminal-created-sequence)
+            (window (get-buffer-window buffer t)))
+        (ox-terminal--unregister-buffer buffer owner-id)
+        (when (eq (gethash owner-id ox-terminal--last-used) buffer)
+          (if-let* ((replacement
+                     (ox-terminal--nearest-survivor
+                      (ox-terminal--buffers-for-owner owner-id) sequence)))
+              (puthash owner-id replacement ox-terminal--last-used)
+            (remhash owner-id ox-terminal--last-used)))
+        (ox-terminal-schedule-renumber owner-id 0)
+        (when (fboundp 'ox-buffer-navigation-after-terminal-kill)
+          (ox-buffer-navigation-after-terminal-kill owner-id window sequence))))))
+
 (defun ox-terminal--cleanup-current-buffer ()
-  "Schedule owner-specific cleanup for a dying managed terminal."
-  (when ox-terminal-managed-p
-    (let ((owner-id ox-terminal-owner-id)
-          (sequence ox-terminal-created-sequence)
-          (window (get-buffer-window (current-buffer) t)))
-      (remhash owner-id ox-terminal--last-used)
-      (ox-terminal-schedule-renumber owner-id 0)
-      (when (fboundp 'ox-buffer-navigation-after-terminal-kill)
-        (ox-buffer-navigation-after-terminal-kill owner-id window sequence)))))
+  "Run lifecycle cleanup for the dying current managed terminal."
+  (ox-terminal--cleanup-buffer (current-buffer)))
+
+(defun ox-terminal--backend-exited (buffer _event)
+  "Clean up managed terminal BUFFER after a backend process exit EVENT."
+  (when (ox-terminal-managed-buffer-p buffer)
+    (ox-terminal--cleanup-buffer buffer)))
 
 (defun ox-terminal-create (&optional backend directory)
   "Create and register a managed terminal using BACKEND in DIRECTORY.
@@ -370,10 +434,12 @@ directory argument is for host-specific convenience commands."
       (setq-local ox-terminal-created-sequence ox-terminal--creation-sequence)
       (setq-local ox-terminal-id
                   (ox-terminal--new-id ox-terminal-created-sequence))
+      (setq-local ox-terminal--lifecycle-cleaned-p nil)
       ;; A managed Ghostel name is workspace state, not terminal-title state.
       (when (eq backend 'ghostel)
         (setq-local ghostel-buffer-name-function nil))
       (add-hook 'kill-buffer-hook #'ox-terminal--cleanup-current-buffer nil t))
+    (ox-terminal--register-buffer buffer)
     (when (and perspective (fboundp 'persp-add-buffer))
       (persp-add-buffer buffer perspective nil nil))
     (puthash owner-id buffer ox-terminal--last-used)
@@ -424,9 +490,9 @@ directory argument is for host-specific convenience commands."
 (defun ox-terminal-switch-to-last ()
   "Switch to the last-used managed terminal in the current perspective."
   (interactive)
-  (let* ((owner-id (ox-terminal--owner-id))
+  (let* ((owner-id (ox-workspace-id (ox-workspace-current-perspective) t))
          (buffers (ox-terminal-buffers))
-         (last (gethash owner-id ox-terminal--last-used))
+         (last (and owner-id (gethash owner-id ox-terminal--last-used)))
          (target (if (memq last buffers) last (car buffers))))
     (when target (ox-terminal-switch-to-buffer target))))
 
@@ -436,12 +502,14 @@ directory argument is for host-specific convenience commands."
   (let* ((buffers (ox-terminal-buffers))
          (count (length buffers)))
     (unless (> count 0) (user-error "No managed terminals in this perspective"))
-    (let* ((owner-id (ox-terminal--owner-id))
+    (let* ((owner-id (ox-workspace-id (ox-workspace-current-perspective) t))
            (last (gethash owner-id ox-terminal--last-used))
+           (offset (or offset 1))
            (start (or (cl-position (current-buffer) buffers)
-                      (cl-position last buffers)
-                      -1))
-           (target (nth (mod (+ start (or offset 1)) count) buffers)))
+                      (cl-position last buffers)))
+           (target (if start
+                       (nth (mod (+ start offset) count) buffers)
+                     (if (< offset 0) (car (last buffers)) (car buffers)))))
       (ox-terminal-switch-to-buffer target))))
 
 (defun ox-terminal-cycle-previous (&optional offset)
@@ -508,7 +576,8 @@ re-evaluating old and new configuration blocks cannot accumulate icons."
               (timer (gethash owner-id ox-terminal--rename-timers)))
     (when (timerp timer) (cancel-timer timer))
     (remhash owner-id ox-terminal--rename-timers)
-    (remhash owner-id ox-terminal--last-used)))
+    (remhash owner-id ox-terminal--last-used)
+    (remhash owner-id ox-terminal--registry)))
 
 (defun ox-terminal--perspective-renamed (perspective _old-name new-name)
   "Refresh terminal display names after PERSPECTIVE becomes NEW-NAME."
@@ -520,10 +589,8 @@ re-evaluating old and new configuration blocks cannot accumulate icons."
 (defvar ox-terminal-prefix-map (make-sparse-keymap)
   "Prefix map for backend-neutral terminal commands.")
 
-(defun ox-terminal-install-keybindings ()
-  "Install reload-safe global and terminal-local bindings."
-  (global-unset-key (kbd "C-\\"))
-  (define-key global-map (kbd "C-|") #'toggle-input-method)
+(defun ox-terminal--build-prefix-map ()
+  "Build the reload-safe terminal prefix map."
   (setcdr ox-terminal-prefix-map nil)
   (dotimes (index 9)
     (let ((slot (1+ index)))
@@ -532,8 +599,18 @@ re-evaluating old and new configuration blocks cannot accumulate icons."
                     (interactive)
                     (ox-terminal-switch-to-slot slot)))))
   (define-key ox-terminal-prefix-map "0" #'ox-terminal-select)
-  (define-key ox-terminal-prefix-map "l" #'ox-buffer-navigation-switch-to-editing-buffer)
+  (define-key ox-terminal-prefix-map "l"
+              #'ox-buffer-navigation-switch-to-editing-buffer))
+
+(defun ox-terminal--install-global-keybindings ()
+  "Install global terminal prefix and input-method bindings."
+  (global-unset-key (kbd "C-\\"))
+  (define-key global-map (kbd "C-|") #'toggle-input-method)
   (define-key global-map (kbd "C-\\") ox-terminal-prefix-map)
+  ox-terminal-prefix-map)
+
+(defun ox-terminal--install-terminal-keybindings ()
+  "Install bindings in terminal and Evil terminal maps that are loaded."
   (dolist (map-symbol '(vterm-mode-map ghostel-mode-map evil-ghostel-mode-map
                        ghostel-semi-char-mode-map ghostel-char-mode-map
                        ghostel-readonly-mode-map ghostel-line-mode-map))
@@ -546,22 +623,41 @@ re-evaluating old and new configuration blocks cannot accumulate icons."
           (kbd "C-\\") ox-terminal-prefix-map
           (kbd "C-6") #'ox-buffer-navigation-switch-to-editing-buffer)))))
 
+(defun ox-terminal-install-keybindings ()
+  "Install reload-safe global and terminal-local bindings."
+  (ox-terminal--build-prefix-map)
+  (ox-terminal--install-global-keybindings)
+  (ox-terminal--install-terminal-keybindings))
+
 (defun ox-terminal--setup-perspective-hooks ()
   "Install named persp-mode lifecycle hooks without duplication."
   (add-hook 'persp-activated-functions #'ox-terminal--perspective-changed)
   (add-hook 'persp-before-kill-functions #'ox-terminal--perspective-killing)
   (add-hook 'persp-renamed-functions #'ox-terminal--perspective-renamed))
 
-(defun ox-terminal--after-load-setup (&rest _)
-  "Refresh package-dependent hooks and keymaps after feature loads."
-  (when (featurep 'persp-mode) (ox-terminal--setup-perspective-hooks))
-  (when (or (featurep 'vterm) (featurep 'ghostel) (featurep 'evil-ghostel))
-    (ox-terminal-install-keybindings)))
+(defun ox-terminal--setup-vterm ()
+  "Install vterm lifecycle and keymap integration."
+  (add-hook 'vterm-exit-functions #'ox-terminal--backend-exited)
+  (ox-terminal--install-terminal-keybindings))
+
+(defun ox-terminal--setup-ghostel ()
+  "Install Ghostel lifecycle and keymap integration."
+  (add-hook 'ghostel-exit-functions #'ox-terminal--backend-exited)
+  (ox-terminal--install-terminal-keybindings))
+
+(defun ox-terminal--setup-evil-keybindings ()
+  "Install Evil bindings after Evil or its Ghostel integration loads."
+  (ox-terminal--install-terminal-keybindings))
 
 (ox-terminal-install-modeline)
 (ox-terminal-install-keybindings)
-(add-hook 'after-load-functions #'ox-terminal--after-load-setup)
-(ox-terminal--after-load-setup)
+(remove-hook 'after-load-functions 'ox-terminal--after-load-setup)
+(ox-terminal--rebuild-registry)
+(with-eval-after-load 'persp-mode (ox-terminal--setup-perspective-hooks))
+(with-eval-after-load 'vterm (ox-terminal--setup-vterm))
+(with-eval-after-load 'ghostel (ox-terminal--setup-ghostel))
+(with-eval-after-load 'evil (ox-terminal--setup-evil-keybindings))
+(with-eval-after-load 'evil-ghostel (ox-terminal--setup-evil-keybindings))
 
 ;; Compatibility entry points.  Their implementations use only managed state.
 (defalias 'my/vterm-buffer-p #'ox-terminal-buffer-p)

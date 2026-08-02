@@ -151,13 +151,31 @@ BASE<N> with the first available integer N starting at 2."
                  (member candidate names)))
         candidate)))))
 
+(defun ox-workspace--choose-project-perspective (matches)
+  "Choose a project perspective from MATCHES without arbitrary ordering.
+Prefer the current perspective, use a sole match directly, and prompt when
+several non-current perspectives carry the same project root."
+  (let ((current (ox-workspace-current-perspective)))
+    (cond
+     ((memq current matches) current)
+     ((null (cdr matches)) (car matches))
+     (t
+      (let* ((choices
+              (mapcar (lambda (perspective)
+                        (cons (ox-workspace-perspective-name perspective)
+                              perspective))
+                      matches))
+             (name (completing-read "Project workspace: " choices nil t)))
+        (cdr (assoc name choices)))))))
+
 (defun ox-workspace-switch-to-project (root)
   "Switch to the workspace attached to ROOT, creating one when needed.
 Project identity is the exact normalized root, never its basename."
   (interactive (list (read-directory-name "Project root: " nil nil t)))
   (let* ((root (ox-workspace-normalize-root root))
          (matches (ox-workspace-perspectives-for-project root))
-         (existing (car matches))
+         (existing (and matches
+                        (ox-workspace--choose-project-perspective matches)))
          (name (if matches
                    (ox-workspace-perspective-name existing)
                  (ox-workspace-unique-project-name root))))

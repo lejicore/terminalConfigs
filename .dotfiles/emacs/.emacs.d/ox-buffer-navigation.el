@@ -61,10 +61,18 @@
           (setcdr (nthcdr (1- ox-buffer-navigation-history-limit) history) nil))
         (puthash owner-id history ox-buffer-navigation--history)))))
 
-(defun ox-buffer-navigation-track-selected-buffer (&rest _)
-  "Record the selected window's editing buffer when appropriate."
-  (when (window-live-p (selected-window))
-    (ox-buffer-navigation-record-buffer (window-buffer (selected-window)))))
+(defun ox-buffer-navigation-track-selected-buffer (&optional frame)
+  "Record the selected editing buffer in FRAME when appropriate."
+  (let ((window (if (frame-live-p frame)
+                    (frame-selected-window frame)
+                  (selected-window))))
+    (when (window-live-p window)
+      (ox-buffer-navigation-record-buffer (window-buffer window)))))
+
+(defun ox-buffer-navigation-track-window-buffer (window)
+  "Record the editing buffer displayed by changed WINDOW."
+  (when (window-live-p window)
+    (ox-buffer-navigation-record-buffer (window-buffer window))))
 
 (defun ox-buffer-navigation--window-candidate (window perspective)
   "Return WINDOW's most recent editing buffer for PERSPECTIVE."
@@ -120,15 +128,29 @@ Outside a terminal, preserve Evil/Emacs alternate-buffer behavior."
                                 sequence))
                            buffers)
                           (car (last buffers))
-                          (car (gethash owner-id
-                                        ox-buffer-navigation--history)))))
+                          (ox-buffer-navigation--owner-fallback owner-id))))
          (when (buffer-live-p target)
            (set-window-buffer window target)))))))
+
+(defun ox-buffer-navigation--owner-fallback (owner-id)
+  "Return OWNER-ID's first live non-terminal fallback and clean its history."
+  (let ((history
+         (seq-filter
+          (lambda (buffer)
+            (and (buffer-live-p buffer)
+                 (not (minibufferp buffer))
+                 (not (string-prefix-p " " (buffer-name buffer)))
+                 (not (ox-terminal-buffer-p buffer))))
+          (gethash owner-id ox-buffer-navigation--history))))
+    (if history
+        (puthash owner-id history ox-buffer-navigation--history)
+      (remhash owner-id ox-buffer-navigation--history))
+    (car history)))
 
 (add-hook 'window-selection-change-functions
           #'ox-buffer-navigation-track-selected-buffer)
 (add-hook 'window-buffer-change-functions
-          #'ox-buffer-navigation-track-selected-buffer)
+          #'ox-buffer-navigation-track-window-buffer)
 
 ;; Compatibility for callers that previously updated or used name histories.
 (defalias 'my/get-persp-non-vterm-current-buffer
