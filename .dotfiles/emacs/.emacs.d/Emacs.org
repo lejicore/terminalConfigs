@@ -4820,9 +4820,9 @@ already active, stop immediately and restore normal macOS sleep behavior."
 
 (ox/leader-keys
     "a" '(:ignore t :which-key "agent-shell")
-    "as" '(agent-shell :which-key "agent-shell-send-screenshot")
+    "as" '(agent-shell-send-screenshot :which-key "agent-shell-send-screenshot")
     "aa" '(agent-shell :which-key "agent-shell")
-    "at" '(agent-shell :which-key "agent-toggle")
+    "at" '(agent-shell-toggle :which-key "agent-shell-toggle")
     "an" '(agent-shell-new-shell :which-key "agent-shell-new-shell"))
 
 (defun ox/agent-shell-apply-evil-ret ()
