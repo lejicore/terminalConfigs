@@ -1850,6 +1850,27 @@ the correct way of doing it is to create our own prompt regexp system see: [[(de
     (setq eshell-destroy-buffer-when-process-dies t)
     (setq eshell-visual-commands '("htop" "zsh" "vim"))))
 #+end_src
+** ghostel
+#+begin_src emacs-lisp
+(use-package ghostel
+  :straight t
+    :bind (:map project-prefix-map
+        ("m" . ghostel-project)
+        ("M" . ghostel-project-list-buffers))
+    :config
+        (with-eval-after-load 'evil
+        (evil-define-key '(visual insert normal)
+        evil-ghostel-mode-map
+        (kbd "C-h")
+        (lambda() (interactive)
+            (ghostel-send-key "backspace")))))
+
+(use-package evil-ghostel
+  :straight t
+  :after (ghostel evil)
+  :hook ((ghostel-mode . evil-ghostel-mode)
+            (ghostel-mode . (lambda () (interactive) (evil-ghostel-toggle-send-escape 'terminal)))))
+#+end_src
 * my/get-persp-non-vterm-current-buffer
 If we are going back and forth between vterms going back to the previous file is either too long =C-x b= to switch buffer, or broken with evil mode =C-6= as you might going back to a previous vterm buffer instead of the previous file we were editing. it has to be used with persp-mode.
 
