@@ -4908,6 +4908,20 @@ already active, stop immediately and restore normal macOS sleep behavior."
          (:map markdown-ts-mode-map
           ("C-c C-c g" . grip-mode))))
 #+end_src
+* direnv
+this package provides [[https://direnv.net/][direnv]] integration for emacs.
+
+it works by invoking direnv to obtain the environment for the current file, then updating the emacs variables process-environment and exec-path.
+
+the result is that programs started from within emacs, such as inferior shells, linters, compilers, and test runners, will be looked up in the correct $PATH, and will be started with the correct environment variables set.
+
+to get started, add this to your init.el:
+#+begin_src emacs-lisp
+(use-package direnv
+    :straight t
+    :config
+    (direnv-mode))
+#+end_src
 * Runtime Performance
 #+begin_src emacs-lisp
 ;; Make gc pauses faster by decreasubg tge threshold.
