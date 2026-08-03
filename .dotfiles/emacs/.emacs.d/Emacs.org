@@ -1780,21 +1780,17 @@ the correct way of doing it is to create our own prompt regexp system see: [[(de
   :bind (:map project-prefix-map
               ("m" . ghostel-project)
               ("M" . ghostel-project-list-buffers)))
-
 (defun ox/ghostel-send-backspace ()
   "Send backspace through Ghostel's documented key API."
   (interactive)
   (ghostel-send-key "backspace"))
 
-(defun ox/evil-ghostel-enter-terminal-state ()
-  "Start a Ghostel buffer in evil-ghostel's terminal state."
-  (evil-ghostel-toggle-send-escape 'terminal))
-
 (use-package evil-ghostel
   :straight t
   :after (ghostel evil)
-  :hook ((ghostel-mode . evil-ghostel-mode)
-         (ghostel-mode . ox/evil-ghostel-enter-terminal-state))
+  :hook (ghostel-mode . evil-ghostel-mode)
+  :custom
+  (evil-ghostel-escape 'terminal)
   :config
   (evil-define-key '(visual insert normal)
     evil-ghostel-mode-map (kbd "C-h") #'ox/ghostel-send-backspace))
