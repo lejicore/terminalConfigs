@@ -8,8 +8,11 @@
 !vterm-renamer.el
 !delete-buffer-respect-vterm.el
 !ox-workspace.el
+!ox-ghostel-ssh.el
 !ox-terminal.el
 !ox-buffer-navigation.el
+!libexec/
+!libexec/ox-ghostel-ssh
 !tests/
 !tests/**
 !snippets

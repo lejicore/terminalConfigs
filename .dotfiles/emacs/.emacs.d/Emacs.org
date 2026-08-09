@@ -463,7 +463,8 @@ Using persp-mode to create different workspaces
     ;; Workspace semantics, terminal backends, and editing-buffer navigation
     ;; are separate modules rooted in the source checkout, not in the runtime
     ;; `user-emacs-directory'.
-    (dolist (module '("ox-workspace" "ox-terminal" "ox-buffer-navigation"))
+    (dolist (module '("ox-workspace" "ox-ghostel-ssh" "ox-terminal"
+                      "ox-buffer-navigation"))
       (load (expand-file-name module ox/emacs-source-directory) nil 'nomessage))
 
 
@@ -1774,9 +1775,18 @@ the correct way of doing it is to create our own prompt regexp system see: [[(de
     (setq eshell-visual-commands '("htop" "zsh" "vim"))))
 #+end_src
 ** ghostel
+Ghostel keeps its native =xterm-kitty= capabilities locally.  A small smart
+=ssh= shim is added only to the environment of Ghostel-created shells: it asks
+OpenSSH for the effective destination, reuses one multiplexed connection,
+probes or installs user-local terminfo, verifies it, and falls back only when
+bootstrap is impossible.  Kitty's SSH helper inspired the behavior; no Kitty
+implementation source is copied.  Set =ox-ghostel-ssh-enable= to nil for the
+kill switch, or =ox-ghostel-ssh-debug= to t for sanitized diagnostics.
 #+begin_src emacs-lisp
 (use-package ghostel
   :straight t
+  :custom
+  (ghostel-term "xterm-kitty")
   :bind (:map project-prefix-map
               ("m" . ghostel-project)
               ("M" . ghostel-project-list-buffers)))

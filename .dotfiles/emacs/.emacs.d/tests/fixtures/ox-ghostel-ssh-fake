@@ -1,0 +1,72 @@
+#!/bin/sh
+set -u
+
+hex() {
+    LC_ALL=C od -An -tx1 | tr -d ' \n'
+}
+
+kind=final
+last=
+for argument do
+    [ "$argument" = -G ] && kind=config
+    last=$argument
+done
+
+case $last in
+    *'tic -x -o'*) kind=tic-bootstrap ;;
+    *'.ox-ghostel-ssh.$$.bin'*) kind=compiled-bootstrap ;;
+    *"infocmp 'xterm-kitty'"*) kind=native-probe ;;
+    *"infocmp 'xterm-256color'"*) kind=fallback-256-probe ;;
+    *"infocmp 'xterm'"*) kind=fallback-xterm-probe ;;
+    *"infocmp 'dumb'"*) kind=fallback-dumb-probe ;;
+esac
+
+{
+    printf 'CALL KIND=%s ARGC=%s TERMHEX=%s PID=%s\n' "$kind" "$#" \
+        "$(printf %s "${TERM-}" | hex)" "$$"
+    for argument do
+        printf 'ARGHEX=%s\n' "$(printf %s "$argument" | hex)"
+    done
+    printf 'END\n'
+} >> "${OX_GHOSTEL_SSH_FAKE_LOG:?}"
+
+case $kind in
+    *probe|*bootstrap) /bin/sh -n -c "$last" ;;
+esac
+
+case $kind in
+    config)
+        printf 'hostname %s\n' "${OX_GHOSTEL_SSH_FAKE_HOSTNAME-host.example}"
+        printf 'user %s\n' "${OX_GHOSTEL_SSH_FAKE_USER-user}"
+        printf 'port %s\n' "${OX_GHOSTEL_SSH_FAKE_PORT-22}"
+        printf 'requesttty %s\n' "${OX_GHOSTEL_SSH_FAKE_REQUEST_TTY-auto}"
+        printf 'sessiontype %s\n' "${OX_GHOSTEL_SSH_FAKE_SESSION_TYPE-default}"
+        printf 'remotecommand %s\n' "${OX_GHOSTEL_SSH_FAKE_REMOTE_COMMAND-none}"
+        exit 0
+        ;;
+    native-probe)
+        case ${OX_GHOSTEL_SSH_FAKE_SCENARIO-native} in
+            native) exit 0 ;;
+            unreachable) exit 255 ;;
+            *) exit 10 ;;
+        esac
+        ;;
+    tic-bootstrap)
+        [ "${OX_GHOSTEL_SSH_FAKE_SCENARIO-}" = tic ] && exit 0
+        exit 10
+        ;;
+    compiled-bootstrap)
+        [ "${OX_GHOSTEL_SSH_FAKE_SCENARIO-}" = compiled ] && exit 0
+        exit 10
+        ;;
+    fallback-256-probe)
+        [ "${OX_GHOSTEL_SSH_FAKE_SCENARIO-}" = fallback ] && exit 0
+        exit 10
+        ;;
+    fallback-xterm-probe|fallback-dumb-probe)
+        exit 10
+        ;;
+    final)
+        exit "${OX_GHOSTEL_SSH_FAKE_FINAL_STATUS-0}"
+        ;;
+esac

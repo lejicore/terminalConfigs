@@ -1,0 +1,264 @@
+#!/bin/sh
+# Transparent xterm-kitty negotiation for ssh launched inside Ghostel.
+
+set -u
+
+real_ssh=${OX_GHOSTEL_SSH_REAL-}
+native_term=${OX_GHOSTEL_SSH_NATIVE_TERM-xterm-kitty}
+fallback_terms=${OX_GHOSTEL_SSH_FALLBACK_TERMS-xterm-256color:xterm:dumb}
+cache_ttl=${OX_GHOSTEL_SSH_CACHE_TTL-604800}
+cache_dir=${OX_GHOSTEL_SSH_CACHE_DIR-${XDG_CACHE_HOME:-$HOME/.cache}/ox-ghostel-ssh}
+source_entry=${OX_GHOSTEL_SSH_TERMINFO_SOURCE-}
+compiled_entry=${OX_GHOSTEL_SSH_TERMINFO_COMPILED-}
+debug=${OX_GHOSTEL_SSH_DEBUG-0}
+enabled=${OX_GHOSTEL_SSH_ENABLE-1}
+
+debug_log() {
+    [ "$debug" = 1 ] || return 0
+    printf 'ox-ghostel-ssh: %s\n' "$*" >&2
+}
+
+sanitize_diagnostic() {
+    printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9._@:+/-' '?' | cut -c 1-200
+}
+
+fatal() {
+    printf 'ox-ghostel-ssh: %s\n' "$*" >&2
+    exit 126
+}
+
+[ -n "$real_ssh" ] || fatal 'real ssh executable is not configured'
+[ -x "$real_ssh" ] || fatal 'configured real ssh is not executable'
+if [ "$real_ssh" = "$0" ] || { [ -e "$0" ] && [ "$real_ssh" -ef "$0" ]; }; then
+    fatal 'real ssh resolves to the wrapper (recursion prevented)'
+fi
+if [ "$enabled" = 0 ]; then
+    exec "$real_ssh" "$@"
+fi
+
+case $native_term in
+    *[!A-Za-z0-9_.+-]*|'') fatal 'unsafe native TERM configuration' ;;
+esac
+term_initial=$(printf %.1s "$native_term")
+term_hex=$(printf %s "$term_initial" | LC_ALL=C od -An -tx1 | tr -d ' \n')
+case $cache_ttl in
+    *[!0-9]*|'') cache_ttl=604800 ;;
+esac
+
+# Parse only enough OpenSSH syntax to decide whether a remote PTY is relevant.
+# Any uncertain/administrative form is delegated untouched.
+destination=
+remote_command=0
+force_tty=0
+disable_tty=0
+passthrough=0
+need_option_argument=0
+after_double_dash=0
+
+for argument do
+    if [ "$need_option_argument" = 1 ]; then
+        need_option_argument=0
+        continue
+    fi
+    if [ -n "$destination" ]; then
+        remote_command=1
+        continue
+    fi
+    if [ "$after_double_dash" = 1 ]; then
+        destination=$argument
+        continue
+    fi
+    case $argument in
+        --) after_double_dash=1 ;;
+        -T) disable_tty=1 ;;
+        -t|-tt) force_tty=1 ;;
+        -N|-n|-f|-G|-Q|-V|-O) passthrough=1 ;;
+        -W) passthrough=1; need_option_argument=1 ;;
+        -W?*) passthrough=1 ;;
+        -[46AaCfgKkMNqsVvXxYy]) ;;
+        -[BbCcDEeFIiJLlmOoPpRSWw]) need_option_argument=1 ;;
+        -[BbCcDEeFIiJLlmOoPpRSWw]?*) ;;
+        -*) passthrough=1 ;;
+        *) destination=$argument ;;
+    esac
+done
+
+if [ "$need_option_argument" = 1 ] || [ -z "$destination" ]; then
+    passthrough=1
+fi
+if [ "$disable_tty" = 1 ] || [ "$remote_command" = 1 ]; then
+    passthrough=1
+fi
+if [ "$force_tty" != 1 ] &&
+   ! { [ -t 0 ] && [ -t 1 ]; } &&
+   [ "${OX_GHOSTEL_SSH_TEST_TTY-0}" != 1 ]; then
+    passthrough=1
+fi
+
+if [ "$passthrough" = 1 ]; then
+    debug_log 'classification=noninteractive action=passthrough'
+    exec "$real_ssh" "$@"
+fi
+
+# OpenSSH parses Host/Match/Include/canonicalization.  We use only its effective
+# host identity for a cache key; the original argv remains authoritative.
+config=$({ "$real_ssh" -G "$@" 2>/dev/null || exit 1; }) || {
+    debug_log 'ssh -G failed; action=passthrough'
+    exec "$real_ssh" "$@"
+}
+hostname=$(printf '%s\n' "$config" | awk '$1 == "hostname" {print $2; exit}')
+user=$(printf '%s\n' "$config" | awk '$1 == "user" {print $2; exit}')
+port=$(printf '%s\n' "$config" | awk '$1 == "port" {print $2; exit}')
+request_tty=$(printf '%s\n' "$config" | awk '$1 == "requesttty" {print $2; exit}')
+session_type=$(printf '%s\n' "$config" | awk '$1 == "sessiontype" {print $2; exit}')
+configured_command=$(printf '%s\n' "$config" | awk '$1 == "remotecommand" {$1=""; sub(/^ /, ""); print; exit}')
+[ -n "$hostname" ] && [ -n "$user" ] && [ -n "$port" ] || {
+    debug_log 'effective destination incomplete; action=passthrough'
+    exec "$real_ssh" "$@"
+}
+if [ "$request_tty" = false ] || [ "$request_tty" = no ] ||
+   [ "$session_type" = none ] ||
+   { [ -n "$configured_command" ] && [ "$configured_command" != none ]; }; then
+    debug_log 'effective OpenSSH config is noninteractive; action=passthrough'
+    exec "$real_ssh" "$@"
+fi
+key=$(printf '%s\n%s\n%s\n%s\n' "$hostname" "$user" "$port" "$native_term" |
+    cksum | awk '{print $1 "-" $2}')
+
+umask 077
+cache_available=1
+mkdir -p "$cache_dir" "$cache_dir/control" 2>/dev/null || cache_available=0
+cache_file=$cache_dir/$key
+if [ "$cache_available" = 1 ]; then
+    control_path=$cache_dir/control/$key-$$
+else
+    debug_log 'cache directory unavailable; using an uncached temporary socket'
+    control_path=${TMPDIR:-/tmp}/oxg-$key-$$
+fi
+
+run_remote() {
+    "$real_ssh" -o ControlMaster=auto -o ControlPersist=60 \
+        -o ClearAllForwardings=yes \
+        -o "ControlPath=$control_path" "$@"
+}
+
+# Once the first probe has authenticated and established the master, helpers
+# use its socket directly with PTY allocation disabled.  This keeps streamed
+# terminfo bytes intact even when the user's final invocation contains -t/-tt.
+run_control_remote() {
+    "$real_ssh" -S "$control_path" -T -- "$destination" "$@"
+}
+
+cache_state=
+cache_term=
+now=$(date +%s 2>/dev/null || printf 0)
+if [ "$cache_available" = 1 ] && [ -r "$cache_file" ]; then
+    IFS=' ' read -r cached_time cache_state cache_term < "$cache_file" || cache_state=
+    case ${cached_time-}:$now in
+        *[!0-9:]*|:*) cache_state= ;;
+        *)
+            age=$((now - cached_time))
+            [ "$age" -ge 0 ] && [ "$age" -lt "$cache_ttl" ] || cache_state=
+            ;;
+    esac
+fi
+
+valid_term() {
+    case ${1-} in
+        *[!A-Za-z0-9_.+-]*|'') return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+write_cache() {
+    state=$1
+    term=$2
+    [ "$cache_available" = 1 ] || return 0
+    valid_term "$term" || return 1
+    temporary=$cache_file.tmp.$$
+    if printf '%s %s %s\n' "$now" "$state" "$term" > "$temporary" 2>/dev/null; then
+        mv -f "$temporary" "$cache_file" 2>/dev/null || :
+    fi
+}
+
+final_handoff() {
+    selected_term=$1
+    shift
+    diagnostic_destination=$(sanitize_diagnostic "$user@$hostname:$port")
+    debug_log "selected_term=$selected_term destination=$diagnostic_destination"
+    TERM=$selected_term; export TERM
+    OX_GHOSTEL_SSH_WRAPPER_ACTIVE=1; export OX_GHOSTEL_SSH_WRAPPER_ACTIVE
+    exec "$real_ssh" -o ControlMaster=auto -o ControlPersist=60 \
+        -o "ControlPath=$control_path" "$@"
+}
+
+case $cache_state:$cache_term in
+    native:"$native_term"|bootstrapped:"$native_term")
+        debug_log "cache=$cache_state"
+        final_handoff "$native_term" "$@"
+        ;;
+    fallback:*)
+        if valid_term "$cache_term"; then
+            debug_log 'cache=fallback'
+            final_handoff "$cache_term" "$@"
+        fi
+        ;;
+esac
+
+native_probe="if command -v infocmp >/dev/null 2>&1; then infocmp '$native_term' >/dev/null 2>&1; elif command -v tput >/dev/null 2>&1; then TERM='$native_term'; export TERM; tput longname >/dev/null 2>&1; else false; fi; if [ \$? = 0 ]; then exit 0; else exit 10; fi"
+debug_log 'cache=miss probe=native'
+run_remote "$@" "$native_probe" </dev/null
+probe_status=$?
+if [ "$probe_status" = 0 ]; then
+    write_cache native "$native_term"
+    final_handoff "$native_term" "$@"
+fi
+if [ "$probe_status" = 255 ]; then
+    debug_log 'native probe could not establish SSH; preserving its failure'
+    exit 255
+fi
+
+bootstrap_ok=0
+verify_native="verify_term() { if command -v infocmp >/dev/null 2>&1; then infocmp '$native_term' >/dev/null 2>&1; elif command -v tput >/dev/null 2>&1; then TERM='$native_term'; export TERM; tput longname >/dev/null 2>&1; else return 1; fi; };"
+if [ -n "$source_entry" ] && [ -r "$source_entry" ]; then
+    debug_log 'bootstrap=tic'
+    # shellcheck disable=SC2016 # variables intentionally expand on the remote
+    tic_command=$verify_native' if command -v tic >/dev/null 2>&1; then umask 077; d="$HOME/.terminfo"; t="$d/.ox-ghostel-ssh.$$.src"; mkdir -p "$d" && cat >"$t" && (tic -x -o "$d" "$t" >/dev/null 2>&1 || tic -o "$d" "$t" >/dev/null 2>&1); r=$?; rm -f "$t"; [ "$r" = 0 ] && verify_term; else exit 10; fi'
+    if run_control_remote "$tic_command" < "$source_entry"; then
+        bootstrap_ok=1
+    fi
+fi
+
+if [ "$bootstrap_ok" != 1 ] && [ -n "$compiled_entry" ] && [ -r "$compiled_entry" ]; then
+    debug_log 'bootstrap=compiled-no-tic'
+    # shellcheck disable=SC2016 # variables intentionally expand on the remote
+    compiled_command=$verify_native' umask 077; d="$HOME/.terminfo"; t="$d/.ox-ghostel-ssh.$$.bin"; mkdir -p "$d/'"$term_initial"'" "$d/'"$term_hex"'" && cat >"$t" && cp "$t" "$d/'"$term_initial/$native_term"'" && cp "$t" "$d/'"$term_hex/$native_term"'"; r=$?; rm -f "$t"; [ "$r" = 0 ] && verify_term'
+    if run_control_remote "$compiled_command" < "$compiled_entry"; then
+        bootstrap_ok=1
+    fi
+fi
+
+if [ "$bootstrap_ok" = 1 ]; then
+    debug_log 'bootstrap=verified'
+    write_cache bootstrapped "$native_term"
+    final_handoff "$native_term" "$@"
+fi
+
+old_ifs=$IFS
+IFS=:
+for fallback in $fallback_terms; do
+    IFS=$old_ifs
+    valid_term "$fallback" || continue
+    debug_log "probe=fallback term=$fallback"
+    fallback_probe="if command -v infocmp >/dev/null 2>&1; then infocmp '$fallback' >/dev/null 2>&1; elif command -v tput >/dev/null 2>&1; then TERM='$fallback'; export TERM; tput longname >/dev/null 2>&1; else false; fi; if [ \$? = 0 ]; then exit 0; else exit 10; fi"
+    if run_control_remote "$fallback_probe" </dev/null; then
+        write_cache fallback "$fallback"
+        final_handoff "$fallback" "$@"
+    fi
+    IFS=:
+done
+IFS=$old_ifs
+
+# Even infocmp may be unavailable.  dumb is the conservative terminal contract.
+write_cache fallback dumb
+final_handoff dumb "$@"
