@@ -2528,7 +2528,7 @@ because compile mode is too slow"
     :straight t
     :custom
     (lsp-pyright-langserver-command "pyright") ;; or basedpyright
-    (setq lsp-pyright-multi-root nil) ;; disable multi-root
+    (lsp-pyright-multi-root nil) ;; disable multi-root
     :hook (python-ts-mode . (lambda ()
                            (require 'lsp-pyright)
                            (lsp-deferred)
