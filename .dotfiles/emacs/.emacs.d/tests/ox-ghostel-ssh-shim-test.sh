@@ -35,8 +35,16 @@ reset_case() {
     unset OX_GHOSTEL_SSH_ENABLE OX_GHOSTEL_SSH_FAKE_FINAL_STATUS
     unset OX_GHOSTEL_SSH_FAKE_HOSTNAME OX_GHOSTEL_SSH_FAKE_USER
     unset OX_GHOSTEL_SSH_FAKE_PORT
+    unset OX_GHOSTEL_SSH_FAKE_PROXY_JUMP OX_GHOSTEL_SSH_FAKE_PROXY_COMMAND
+    unset OX_GHOSTEL_SSH_FAKE_HOST_KEY_ALIAS
     unset OX_GHOSTEL_SSH_FAKE_REQUEST_TTY OX_GHOSTEL_SSH_FAKE_SESSION_TYPE
     unset OX_GHOSTEL_SSH_FAKE_REMOTE_COMMAND
+}
+
+argv_hex() {
+    for argument do
+        printf '%s:' "$(hex "$argument")"
+    done
 }
 
 assert_contains() {
@@ -54,6 +62,14 @@ assert_call_count() {
         sed -n '1,240p' "$log" >&2
         exit 1
     }
+}
+
+assert_exact_passthrough() {
+    "$shim" "$@"
+    assert_call_count 1
+    assert_contains "CALL KIND=final ARGC=$#"
+    assert_contains "ARGVHEX=$(argv_hex "$@")"
+    [ ! -e "$cache" ]
 }
 
 # Noninteractive commands, -T, and disabled mode are exact passthroughs.
@@ -83,6 +99,40 @@ OX_GHOSTEL_SSH_ENABLE=0; export OX_GHOSTEL_SSH_ENABLE
 "$shim" -p 2222 user@host
 assert_call_count 1
 assert_contains 'CALL KIND=final ARGC=3'
+
+# Explicit user multiplexing is an exact, pre-config passthrough.  In
+# particular, -S used to satisfy the smart classifier; it now reaches exactly
+# one real ssh call with its socket path and all argument boundaries intact.
+reset_case
+# shellcheck disable=SC2016 # literal hostile socket path argument
+assert_exact_passthrough -S 'socket path;$HOME' host
+reset_case
+# shellcheck disable=SC2016 # literal hostile attached socket path argument
+assert_exact_passthrough '-Ssocket path;$HOME' host
+reset_case
+assert_exact_passthrough -M host
+reset_case
+assert_exact_passthrough -MM host
+reset_case
+assert_exact_passthrough -o 'ControlPath=socket path' host
+reset_case
+assert_exact_passthrough '-oControlPath=socket path' host
+reset_case
+assert_exact_passthrough -o 'cOnTrOlMaStEr yes' host
+reset_case
+assert_exact_passthrough '-oControlMaster=ask' host
+reset_case
+assert_exact_passthrough -o 'ControlPersist=60' host
+reset_case
+assert_exact_passthrough '-oControlPersist yes' host
+
+# Other -o settings remain eligible for smart handling.
+reset_case
+OX_GHOSTEL_SSH_FAKE_SCENARIO=native; export OX_GHOSTEL_SSH_FAKE_SCENARIO
+"$shim" -o BatchMode=yes host
+assert_contains 'KIND=config'
+assert_contains 'KIND=native-probe'
+assert_contains 'KIND=final'
 
 # Native support: one probe connection and an exec handoff with native TERM.
 reset_case
@@ -114,6 +164,17 @@ OX_GHOSTEL_SSH_FAKE_REQUEST_TTY=no; export OX_GHOSTEL_SSH_FAKE_REQUEST_TTY
 assert_call_count 2
 if grep -F 'KIND=native-probe' "$log" >/dev/null; then exit 1; fi
 
+# Subsystem and any other non-default SessionType are never given shell probes.
+reset_case
+OX_GHOSTEL_SSH_FAKE_SESSION_TYPE=subsystem; export OX_GHOSTEL_SSH_FAKE_SESSION_TYPE
+"$shim" host
+assert_call_count 2
+assert_contains 'KIND=config'
+assert_contains "ARGVHEX=$(argv_hex host)"
+if grep -E 'KIND=(native-probe|.*bootstrap|fallback-.*-probe)' "$log" >/dev/null; then
+    exit 1
+fi
+
 # Explicit PTY allocation remains smart, but helper streams use -T on the
 # already-authenticated control socket.
 reset_case
@@ -127,6 +188,7 @@ assert_contains 'KIND=final'
 # skips the remote probe, while TTL=0 forces revalidation.
 reset_case
 OX_GHOSTEL_SSH_FAKE_SCENARIO=native; export OX_GHOSTEL_SSH_FAKE_SCENARIO
+OX_GHOSTEL_SSH_FAKE_PROXY_JUMP=same-jump; export OX_GHOSTEL_SSH_FAKE_PROXY_JUMP
 "$shim" first-alias
 : > "$log"
 OX_GHOSTEL_SSH_FAKE_SCENARIO=unreachable; export OX_GHOSTEL_SSH_FAKE_SCENARIO
@@ -145,6 +207,24 @@ set -e
 [ "$status" = 255 ]
 assert_contains 'KIND=native-probe'
 OX_GHOSTEL_SSH_CACHE_TTL=604800; export OX_GHOSTEL_SSH_CACHE_TTL
+
+# Identical endpoint tuples reached through different effective routes must
+# not share capabilities, even though aliases on the same route still do.
+reset_case
+OX_GHOSTEL_SSH_FAKE_SCENARIO=native; export OX_GHOSTEL_SSH_FAKE_SCENARIO
+OX_GHOSTEL_SSH_FAKE_PROXY_JUMP=jump-a; export OX_GHOSTEL_SSH_FAKE_PROXY_JUMP
+"$shim" route-a
+: > "$log"
+OX_GHOSTEL_SSH_FAKE_SCENARIO=unreachable; export OX_GHOSTEL_SSH_FAKE_SCENARIO
+OX_GHOSTEL_SSH_FAKE_PROXY_JUMP=jump-b; export OX_GHOSTEL_SSH_FAKE_PROXY_JUMP
+set +e
+"$shim" route-b
+status=$?
+set -e
+[ "$status" = 255 ]
+assert_call_count 2
+assert_contains 'KIND=config'
+assert_contains 'KIND=native-probe'
 
 # tic and compiled no-tic bootstrap paths both require post-install success.
 reset_case

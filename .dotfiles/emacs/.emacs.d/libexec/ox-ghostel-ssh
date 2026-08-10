@@ -53,11 +53,28 @@ force_tty=0
 disable_tty=0
 passthrough=0
 need_option_argument=0
+need_o_argument=0
 after_double_dash=0
+
+explicit_mux_option() {
+    option=$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]' |
+        sed 's/^[[:space:]]*//')
+    case $option in
+        controlpath|controlmaster|controlpersist|\
+        controlpath=*|controlmaster=*|controlpersist=*|\
+        controlpath[[:space:]]*|controlmaster[[:space:]]*|\
+        controlpersist[[:space:]]*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 for argument do
     if [ "$need_option_argument" = 1 ]; then
+        if [ "$need_o_argument" = 1 ] && explicit_mux_option "$argument"; then
+            passthrough=1
+        fi
         need_option_argument=0
+        need_o_argument=0
         continue
     fi
     if [ -n "$destination" ]; then
@@ -73,11 +90,20 @@ for argument do
         -T) disable_tty=1 ;;
         -t|-tt) force_tty=1 ;;
         -N|-n|-f|-G|-Q|-V|-O) passthrough=1 ;;
+        -M|-MM) passthrough=1 ;;
+        -S) passthrough=1; need_option_argument=1 ;;
+        -S?*) passthrough=1 ;;
+        -o) need_option_argument=1; need_o_argument=1 ;;
+        -o?*)
+            if explicit_mux_option "${argument#-o}"; then
+                passthrough=1
+            fi
+            ;;
         -W) passthrough=1; need_option_argument=1 ;;
         -W?*) passthrough=1 ;;
-        -[46AaCfgKkMNqsVvXxYy]) ;;
-        -[BbCcDEeFIiJLlmOoPpRSWw]) need_option_argument=1 ;;
-        -[BbCcDEeFIiJLlmOoPpRSWw]?*) ;;
+        -[46AaCfgKkNqsVvXxYy]) ;;
+        -[BbCcDEeFIiJLlmPpRwW]) need_option_argument=1 ;;
+        -[BbCcDEeFIiJLlmPpRwW]?*) ;;
         -*) passthrough=1 ;;
         *) destination=$argument ;;
     esac
@@ -109,6 +135,9 @@ config=$({ "$real_ssh" -G "$@" 2>/dev/null || exit 1; }) || {
 hostname=$(printf '%s\n' "$config" | awk '$1 == "hostname" {print $2; exit}')
 user=$(printf '%s\n' "$config" | awk '$1 == "user" {print $2; exit}')
 port=$(printf '%s\n' "$config" | awk '$1 == "port" {print $2; exit}')
+proxy_jump=$(printf '%s\n' "$config" | awk '$1 == "proxyjump" {$1=""; sub(/^ /, ""); print; exit}')
+proxy_command=$(printf '%s\n' "$config" | awk '$1 == "proxycommand" {$1=""; sub(/^ /, ""); print; exit}')
+host_key_alias=$(printf '%s\n' "$config" | awk '$1 == "hostkeyalias" {$1=""; sub(/^ /, ""); print; exit}')
 request_tty=$(printf '%s\n' "$config" | awk '$1 == "requesttty" {print $2; exit}')
 session_type=$(printf '%s\n' "$config" | awk '$1 == "sessiontype" {print $2; exit}')
 configured_command=$(printf '%s\n' "$config" | awk '$1 == "remotecommand" {$1=""; sub(/^ /, ""); print; exit}')
@@ -117,12 +146,17 @@ configured_command=$(printf '%s\n' "$config" | awk '$1 == "remotecommand" {$1=""
     exec "$real_ssh" "$@"
 }
 if [ "$request_tty" = false ] || [ "$request_tty" = no ] ||
-   [ "$session_type" = none ] ||
+   [ "$session_type" != default ] ||
    { [ -n "$configured_command" ] && [ "$configured_command" != none ]; }; then
     debug_log 'effective OpenSSH config is noninteractive; action=passthrough'
     exec "$real_ssh" "$@"
 fi
-key=$(printf '%s\n%s\n%s\n%s\n' "$hostname" "$user" "$port" "$native_term" |
+proxy_jump=${proxy_jump:-<none>}
+proxy_command=${proxy_command:-<none>}
+host_key_alias=${host_key_alias:-<none>}
+key=$(printf 'hostname=%s\nuser=%s\nport=%s\nproxyjump=%s\nproxycommand=%s\nhostkeyalias=%s\nnative-term=%s\n' \
+    "$hostname" "$user" "$port" "$proxy_jump" "$proxy_command" \
+    "$host_key_alias" "$native_term" |
     cksum | awk '{print $1 "-" $2}')
 
 umask 077

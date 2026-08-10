@@ -27,6 +27,11 @@ esac
     for argument do
         printf 'ARGHEX=%s\n' "$(printf %s "$argument" | hex)"
     done
+    printf 'ARGVHEX='
+    for argument do
+        printf '%s:' "$(printf %s "$argument" | hex)"
+    done
+    printf '\n'
     printf 'END\n'
 } >> "${OX_GHOSTEL_SSH_FAKE_LOG:?}"
 
@@ -39,6 +44,9 @@ case $kind in
         printf 'hostname %s\n' "${OX_GHOSTEL_SSH_FAKE_HOSTNAME-host.example}"
         printf 'user %s\n' "${OX_GHOSTEL_SSH_FAKE_USER-user}"
         printf 'port %s\n' "${OX_GHOSTEL_SSH_FAKE_PORT-22}"
+        printf 'proxyjump %s\n' "${OX_GHOSTEL_SSH_FAKE_PROXY_JUMP-none}"
+        printf 'proxycommand %s\n' "${OX_GHOSTEL_SSH_FAKE_PROXY_COMMAND-none}"
+        printf 'hostkeyalias %s\n' "${OX_GHOSTEL_SSH_FAKE_HOST_KEY_ALIAS-none}"
         printf 'requesttty %s\n' "${OX_GHOSTEL_SSH_FAKE_REQUEST_TTY-auto}"
         printf 'sessiontype %s\n' "${OX_GHOSTEL_SSH_FAKE_SESSION_TYPE-default}"
         printf 'remotecommand %s\n' "${OX_GHOSTEL_SSH_FAKE_REMOTE_COMMAND-none}"
