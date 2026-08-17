@@ -3,6 +3,7 @@
   pkgs,
   inputs,
   config,
+  lib,
   ...
 }:
 let
@@ -25,7 +26,34 @@ in
 
   #services.nix-daemon.enable = true;
   services.tailscale.enable = true;
+  launchd.daemons.linux-builder = {
+    environment.NIX_DISK_IMAGE =
+      "/Volumes/NixBuilder/linux-builder/nixos.qcow2";
+    # IMPORTANT:
+    # Do not override KeepAlive or RunAtLoad here.
+    # nix-darwin's linux-builder relies on its stock service lifecycle.
+  };
   nix = {
+    linux-builder = {
+      enable = true;
+      config = {
+        nix.settings.ssl-cert-file = "/etc/ssl/certs/ca-certificates.crt";
+        swapDevices = lib.mkVMOverride [
+          {
+            device = "/var/lib/linux-builder.swap";
+            size = 8 * 1024;
+
+          }
+        ];
+        virtualisation = {
+          cores = 4;
+          darwin-builder = {
+            memorySize = 8 * 1024;
+            diskSize = 96 * 1024;
+          };
+        };
+      };
+    };
     package = pkgs.nixVersions.latest;
     #package = pkgs.nixVersions.nix_2_31; # for nix-rage compatibility
     settings.trusted-users = [
@@ -51,6 +79,12 @@ in
   };
 
   # * Environment
+  environment.etc."ssh/ssh_config.d/099-linux-builder-auth.conf".text = ''
+    Host linux-builder
+    IdentitiesOnly yes
+    IdentityAgent none
+  '';
+
   # installing both here with home manager
   # TODO split system wise packages with home wise packages
   environment.systemPackages = packageList;
