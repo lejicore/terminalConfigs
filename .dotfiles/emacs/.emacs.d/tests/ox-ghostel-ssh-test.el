@@ -19,7 +19,8 @@
                     vterm-mode-hook)))
 
 (ert-deftest ox-ghostel-ssh-injection-is-dynamically-scoped ()
-  (let ((global-environment (copy-sequence process-environment)))
+  (let ((global-environment (copy-sequence process-environment))
+        (global-path (getenv "PATH")))
     ;; Match Ghostel's live construction: `append' shares its final list tail.
     (let* ((process-environment (append '("INSIDE_EMACS=ghostel")
                                         process-environment))
@@ -29,11 +30,14 @@
       (cl-letf (((symbol-function 'ox-ghostel-ssh--prepare)
                  (lambda () '(:source "/source" :compiled "/compiled"))))
         (ox-ghostel-ssh-inject-environment)
+        (should (equal (getenv "OX_GHOSTEL_SSH_WRAPPER")
+                       "/runtime/bin/ssh"))
         (should (equal (getenv "OX_GHOSTEL_SSH_REAL") "/real/ssh"))
         (should (equal (getenv "OX_GHOSTEL_SSH_NATIVE_TERM") "xterm-kitty"))
         (should (equal (getenv "OX_GHOSTEL_SSH_FALLBACK_TERMS")
                        "xterm-256color:xterm:dumb"))
-        (should (string-prefix-p "/runtime/bin:" (getenv "PATH")))
+        ;; Child programs must keep resolving ssh from the ordinary PATH.
+        (should (equal (getenv "PATH") global-path))
         (should-not (member "/runtime/bin" exec-path))))
     (should (equal process-environment global-environment))))
 

@@ -1,9 +1,10 @@
 ;;; ox-ghostel-ssh.el --- Transparent SSH terminfo for Ghostel -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; Ghostel shells receive a private PATH entry containing an ssh shim.  The
-;; shim keeps OpenSSH authoritative while negotiating xterm-kitty terminfo.
-;; Neither Emacs globally nor other terminal backends inherit this PATH.
+;; Ghostel shells receive the private smart SSH shim path through an
+;; environment variable.  Interactive shell configuration dispatches `ssh' to
+;; the shim without shadowing the real executable in PATH for child programs.
+;; The shim keeps OpenSSH authoritative while negotiating xterm-kitty terminfo.
 
 ;;; Code:
 
@@ -235,13 +236,15 @@ This function is intended only for `ghostel-pre-spawn-hook', whose dynamic
 `process-environment' binding confines all changes to that Ghostel child."
   (when ox-ghostel-ssh-enable
     ;; Ghostel builds its dynamic environment with `append' and leaves the
-    ;; final global list as a shared tail.  Detach it before replacing PATH;
-    ;; otherwise `setenv' can mutate the global PATH cons cell in place.
+    ;; final global list as a shared tail.  Detach it before setting the
+    ;; Ghostel-only variables so `setenv' cannot mutate the global list.
     (setq process-environment (copy-sequence process-environment))
-    (let* ((artifacts (ox-ghostel-ssh--prepare))
-           (bin (directory-file-name (ox-ghostel-ssh--bin-directory)))
-           (path (or (getenv "PATH") "")))
-      (ox-ghostel-ssh--setenv "PATH" (concat bin path-separator path))
+    (let ((artifacts (ox-ghostel-ssh--prepare)))
+      ;; Do not prepend the wrapper to PATH.  PATH is inherited by every child
+      ;; of the Ghostel shell, which would make unrelated programs such as Nix
+      ;; and darwin-rebuild resolve this wrapper instead of the real ssh.
+      (ox-ghostel-ssh--setenv "OX_GHOSTEL_SSH_WRAPPER"
+                              (ox-ghostel-ssh--wrapper-path))
       (ox-ghostel-ssh--setenv "OX_GHOSTEL_SSH_REAL" ox-ghostel-ssh--real-ssh)
       (ox-ghostel-ssh--setenv "OX_GHOSTEL_SSH_NATIVE_TERM"
                               ox-ghostel-ssh-native-term)

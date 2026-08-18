@@ -223,6 +223,7 @@ alias dev="web_search dev $@"
 #alias home-manager="nix run home-manager -- $@"
 #alias hms="nix run home-manager -- $@ switch --flake"
 alias e="emacsclient -r -n"
+alias emacsd='"/Applications/Nix Apps/Emacs.app/Contents/MacOS/Emacs" --daemon'
 alias ls='lsd --hyperlink=auto'
 alias l='ls -l --hyperlink=auto'
 alias la='ls -a --hyperlink=auto'
@@ -231,6 +232,17 @@ alias lt='ls --tree --hyperlink=auto'
 alias c='cht.sh'
 alias ecn='emacsclient -n'
 #alias zz="z && ls"
+
+# Ghostel exposes its smart SSH wrapper explicitly instead of putting it on
+# PATH.  Keep the override in this interactive shell so descendants such as
+# Nix/darwin-rebuild continue to resolve the real system ssh from PATH.
+if [[ -n ${OX_GHOSTEL_SSH_WRAPPER:-} &&
+      -x ${OX_GHOSTEL_SSH_WRAPPER} ]]; then
+  ssh() {
+    "${OX_GHOSTEL_SSH_WRAPPER}" "$@"
+  }
+fi
+
 alias kssh='kitty +kitten ssh'
 alias kdeb='kitty +kitten ssh debian'
 #with exec instead of alias to execute it from the file name it is stored
