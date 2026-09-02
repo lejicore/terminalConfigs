@@ -132,7 +132,6 @@ in
       "tor-browser"
       "jdownloader"
       "ungoogled-chromium"
-      "battery-toolkit"
       "docker-desktop"
       "Sikarugir-App/sikarugir/sikarugir"
     ];
