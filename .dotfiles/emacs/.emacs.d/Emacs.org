@@ -3998,6 +3998,7 @@ We are using consult-dash as an ui-front end to parse dash-docs
 ;; real login shell, with TRAMP's shell as the built-in fallback.
 (setq vterm-tramp-shells '(("docker" "/bin/sh")
                            ("ssh" login-shell)
+                           ("rpc" login-shell)
                            ("sshx" login-shell)))
 (defun ox/ledeb-vterm ()
   "Open an explicitly vterm-backed managed terminal on ledeb."
