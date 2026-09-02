@@ -23,7 +23,8 @@
     sops-nix.url = "github:Mic92/sops-nix";
     nix-rage = {
       #url = "github:renesat/nix-rage";
-      url = "github:lejicore/nix-rage?ref=fix_darwin_again";
+      #url = "github:lejicore/nix-rage?ref=fix_darwin_again";
+      url = "github:lejicore/nix-rage?ref=upstream-ready/darwin-plugin-abi";
       #url = "path:~/dev/nix-rage";
       inputs.nixpkgs.follows = "nixpkgs";
 
