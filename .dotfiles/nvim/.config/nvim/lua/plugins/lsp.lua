@@ -146,7 +146,7 @@ return {
 
       -- Enable the following language servers
 
-      local servers = {'pyright', 'ts_ls', 'yamlls', 'lua_ls', 'angularls', 'bashls','autotools_ls', 'nil_ls',
+      local servers = {'pyright', 'ts_ls', 'yamlls', 'lua_ls', 'angularls', 'bashls','autotools_ls',
         --'phpactor',
         --'emmet_ls',
         'emmet_language_server',
@@ -157,6 +157,7 @@ return {
       -- Ensure the servers above are installed
       require('mason-lspconfig').setup {
         ensure_installed = servers,
+        automatic_enable = true,
       }
 
       -- for _, lsp in ipairs(servers) do
@@ -228,6 +229,14 @@ return {
           },
         },
       }
+      vim.lsp.config("nixd", {
+        cmd = {"nixd"},
+        on_attach=on_attach,
+        capabilities = capabilities,
+
+      })
+      vim.lsp.enable("nixd")
+
 
       --[[ -- Update this path
       -- for rust debugger watch rust-tools
