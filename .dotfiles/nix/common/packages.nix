@@ -99,7 +99,7 @@ in
   python314Packages.grip
   opencode
   qwen-code
-  gemini-cli
+  #gemini-cli
   dbeaver-bin
   pkgconf
   tailscale
