@@ -39,7 +39,7 @@ rec {
         makeFlags = oldAttrs.makeFlags or [ ];
       });
   emacsLeji =
-    if prev.stdenv.isDarwin then
+    if prev.stdenv.hostPlatform.isDarwin then
       emacsGitLejiGeneric.overrideAttrs (old: {
         patches = (old.patches or [ ]) ++ [
           # Fix OS window role so that yabai can pick up Emacs

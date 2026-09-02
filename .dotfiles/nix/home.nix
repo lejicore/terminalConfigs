@@ -6,8 +6,8 @@
 }:
 
 let
-  isDarwin = pkgs.stdenv.isDarwin;
-  isLinux = pkgs.stdenv.isLinux;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
 
   username = builtins.trace "configdir: ${config.rage.username}" config.rage.username;
 

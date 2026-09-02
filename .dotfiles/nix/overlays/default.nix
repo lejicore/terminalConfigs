@@ -19,7 +19,7 @@ in
   # Darwin fixes for aider-achat and direnv, test to remove them later
   (
     final: prev:
-    prev.lib.optionalAttrs prev.stdenv.isDarwin {
+    prev.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
       "aider-chat" = prev."aider-chat".overrideAttrs (_old: {
         doCheck = false;
         checkPhase = "true";
