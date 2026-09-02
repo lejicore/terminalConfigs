@@ -6,17 +6,17 @@
 
 buildNpmPackage rec {
   pname = "codex-acp";
-  version = "1.1.7";
+  version = "1.7.0";
 
   src = fetchFromGitHub {
     owner = "agentclientprotocol";
     repo = "codex-acp";
     rev = "v${version}";
 
-    hash = "sha256-RY1iiajNR3eJI9WYARZnbIHnDl5+gmlPo3GVjJEJ9Zs=";
+    hash = "sha256-oOByalquD4I4s+3JafMDYlQ3dGN1TAfq3sy6owSsv6M=";
   };
 
-  npmDepsHash = "sha256-c/sbGziA3Y2mOcPRD3K0PSd8sAVXSQuip8fE/eojl+Y=";
+  npmDepsHash = "sha256-5dk7J0nDg4YWpiSnnY11JPWKgMgJn1Wi0KGAyhdc1Fk=";
 
   npmBuildScript = "build";
 
