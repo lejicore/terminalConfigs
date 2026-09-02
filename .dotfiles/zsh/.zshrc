@@ -87,7 +87,7 @@ function sshe(){
     ssh-add ~/.ssh/oci/*_ed255519* 2>/dev/null # Add all private keys
   elif [ "$SSH_AUTH_SOCK" ] && [ $agent_run_state = 1 ]; then
     ssh-add ~/.ssh/id_* 2>/dev/null
-    ssh-add ~/.ssh/oci/*_ed255519* 2>/dev/null # Add all private keys
+    ssh-add ~/.ssh/oci/*_ed25519* 2>/dev/null # Add all private keys
   fi
 
   unset env
