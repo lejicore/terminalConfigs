@@ -3307,7 +3307,10 @@ Show org file contents into others org files.
 Actually using it to display zettels from org-roam to org-fc flashcards without clicking on links
 #+begin_src emacs-lisp
 (use-package org-transclusion
-  :straight t
+  :straight (:host github
+                :repo "nobiot/org-transclusion"
+                :branch "main"
+                :files ("*.el" (:exclude ".git")))
   :after org
   :config
   (setq org-transclusion-add-all-on-activate t
