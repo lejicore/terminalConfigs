@@ -2,6 +2,53 @@
 #+STARTUP: overview
 #+PROPERTY: header-args:emacs-lisp :tangle ./init.el :lexical t :auto-tangle t
 
+* macOS Emacs daemon must launch from Emacs.app
+
+On macOS with AeroSpace, do NOT start the interactive daemon with:
+
+#+begin_src sh
+emacs --daemon
+#+end_src
+
+That launches the Nix store binary directly and macOS/AeroSpace sees Emacs as:
+
+#+begin_example
+NULL-APP-BUNDLE-ID
+#+end_example
+
+As a result, AeroSpace does not recognize Corfu child frames as Emacs popups.
+When Corfu closes its floating child frame, AeroSpace may recalculate focus and
+move keyboard focus to another tiled window.
+
+Start the daemon through the executable inside the app bundle instead:
+
+#+begin_src sh
+"/Applications/Nix Apps/Emacs.app/Contents/MacOS/Emacs" --daemon
+#+end_src
+
+Then normal usage stays unchanged:
+
+#+begin_src sh
+emacsclient -r
+#+end_src
+
+Expected AeroSpace identity:
+
+#+begin_example
+org.gnu.Emacs
+#+end_example
+
+Diagnostic:
+
+#+begin_src sh
+aerospace list-windows --monitor focused \
+  --format '%{window-id}|%{app-pid}|%{app-bundle-id}|%{app-name}|%{app-exec-path}|%{window-title}|%{window-layout}'
+#+end_src
+
+Root cause found 2026-08-12:
+Nix Emacs daemon launched via bin/emacs lost macOS bundle identity.
+Launching Emacs.app/Contents/MacOS/Emacs preserves org.gnu.Emacs and fixes
+Corfu/AeroSpace focus drifting.
 * Things to test
 - Should consider trying out the [[https://github.com/emacsmirror/gcmh][GCMH]] package instead of manually tweaking the garbage collector treshold 
 - [[https://codeberg.org/akib/emacs-eat][Eat]] terminal emulator 
