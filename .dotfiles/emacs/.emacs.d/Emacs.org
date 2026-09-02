@@ -2495,176 +2495,200 @@ because compile mode is too slow"
 
 #+begin_src emacs-lisp
 (defun ox/lsp-mode-setup ()
-  (setq lsp-headerline-breadcrumb-segments '(path-up-to-project file symbols))
-  (lsp-headerline-breadcrumb-mode))
+    (setq lsp-headerline-breadcrumb-segments '(path-up-to-project file symbols))
+    (lsp-headerline-breadcrumb-mode))
 
 ;; (use-package lsp-tailwindcss
 ;;  :straight '(lsp-tailwindcss :type git :host github :repo "merrickluo/lsp-tailwindcss"))
 (use-package lsp-mode
-  :straight t
-  :preface
-  (defun lsp-booster--advice-json-parse (old-fn &rest args)
-    "Try to parse bytecode instead of json."
-    (or
-     (when (equal (following-char) ?#)
+    :straight t
+    :preface
+    (defun lsp-booster--advice-json-parse (old-fn &rest args)
+        "Try to parse bytecode instead of json."
+        (or
+            (when (equal (following-char) ?#)
 
-       (let ((bytecode (read (current-buffer))))
-         (when (byte-code-function-p bytecode)
-           (funcall bytecode))))
-     (apply old-fn args)))
-  (defun lsp-booster--advice-final-command (old-fn cmd &optional test?)
-    "Prepend emacs-lsp-booster command to lsp CMD."
-    (let ((orig-result (funcall old-fn cmd test?)))
-      (if (and (not test?)                             ;; for check lsp-server-present?
-               (not (file-remote-p default-directory)) ;; see lsp-resolve-final-command, it would add extra shell wrapper
-               lsp-use-plists
-               (not (functionp 'json-rpc-connection))  ;; native json-rpc
-               (executable-find "emacs-lsp-booster"))
-          (progn
-            (message "Using emacs-lsp-booster for %s!" orig-result)
-            (cons "emacs-lsp-booster" orig-result))
-        orig-result)))
-  :init
-  (setq lsp-use-plists t)
-  ;; Initiate https://github.com/blahgeek/emacs-lsp-booster for performance
-  (advice-add (if (progn (require 'json)
-                         (fboundp 'json-parse-buffer))
-                  'json-parse-buffer
-                'json-read)
-              :around
-              #'lsp-booster--advice-json-parse)
-  (advice-add 'lsp-resolve-final-command :around #'lsp-booster--advice-final-command)
-  :hook
-  ((lsp-mode . ox/lsp-mode-setup)
-   (c-ts-mode . lsp-deferred)
-   (c++-ts-mode . lsp-deferred)
-   (lua-mode . lsp-deferred)
-   (kotlin-ts-mode . lsp-deferred)
-   (dockerfile-ts-mode . lsp-deferred)
-   (yaml-ts-mode . lsp-deferred)
-   (typescript-ts-mode . lsp-deferred)
-   (css-ts-mode . lsp-deferred)
-   (html-mode . lsp-deferred)
-   (nix-ts-mode . lsp-deferred)
-   (bash-ts-mode . lsp-deferred)
-   (asm-mode . lsp-deferred)
-   ;; (rust-ts-mode . lsp-deferred)
-   (js-ts-mode . lsp-deferred))
-  :init
-  (setq lsp-keymap-prefix "C-c C-l")
-  (define-key lsp-mode-map (kbd "C-c C-l") lsp-command-map)
-  :config
+                (let ((bytecode (read (current-buffer))))
+                    (when (byte-code-function-p bytecode)
+                        (funcall bytecode))))
+            (apply old-fn args)))
+    (defun lsp-booster--advice-final-command (old-fn cmd &optional test?)
+        "Prepend emacs-lsp-booster command to lsp CMD."
+        (let ((orig-result (funcall old-fn cmd test?)))
+            (if (and (not test?)                             ;; for check lsp-server-present?
+                    (not (file-remote-p default-directory)) ;; see lsp-resolve-final-command, it would add extra shell wrapper
+                    lsp-use-plists
+                    (not (functionp 'json-rpc-connection))  ;; native json-rpc
+                    (executable-find "emacs-lsp-booster"))
+                (progn
+                    (message "Using emacs-lsp-booster for %s!" orig-result)
+                    (cons "emacs-lsp-booster" orig-result))
+                orig-result)))
+    :init
+    (setq lsp-use-plists t)
+    ;; Initiate https://github.com/blahgeek/emacs-lsp-booster for performance
+    (advice-add (if (progn (require 'json)
+                        (fboundp 'json-parse-buffer))
+                    'json-parse-buffer
+                    'json-read)
+        :around
+        #'lsp-booster--advice-json-parse)
+    (advice-add 'lsp-resolve-final-command :around #'lsp-booster--advice-final-command)
+    :hook
+    ((lsp-mode . ox/lsp-mode-setup)
+        (c-ts-mode . lsp-deferred)
+        (c++-ts-mode . lsp-deferred)
+        (lua-mode . lsp-deferred)
+        (kotlin-ts-mode . lsp-deferred)
+        (dockerfile-ts-mode . lsp-deferred)
+        (yaml-ts-mode . lsp-deferred)
+        (typescript-ts-mode . lsp-deferred)
+        (css-ts-mode . lsp-deferred)
+        (html-mode . lsp-deferred)
+        (nix-ts-mode . lsp-deferred)
+        (bash-ts-mode . lsp-deferred)
+        (asm-mode . lsp-deferred)
+        ;; (rust-ts-mode . lsp-deferred)
+        (js-ts-mode . lsp-deferred))
+    :init
+    (setq lsp-keymap-prefix "C-c C-l")
+    (define-key lsp-mode-map (kbd "C-c C-l") lsp-command-map)
+    :config
     (add-to-list 'lsp-language-id-configuration '(asm-mode . "asm"))
-  ;; `lsp-bash--bash-ls-server-command' resolves the system dependency to an
-  ;; absolute remote path.  The subsequent lsp-mode presence check feeds that
-  ;; absolute path back to `executable-find', which cannot resolve it through
-  ;; TRAMP.  Keep the executable name for remote buffers so TRAMP searches its
-  ;; configured remote PATH; leave local resolution unchanged.
-  (defun ox/lsp-bash-remote-command (original)
-    "Return a TRAMP-resolvable Bash language-server command."
-    (if (file-remote-p default-directory)
-        '("bash-language-server" "start")
-      (funcall original)))
-  (with-eval-after-load 'lsp-bash
-    (unless (advice-member-p #'ox/lsp-bash-remote-command
-                             'lsp-bash--bash-ls-server-command)
-      (advice-add 'lsp-bash--bash-ls-server-command
-                  :around #'ox/lsp-bash-remote-command)))
-  (setq lsp-clients-kotlin-server-executable "~/builds/kotlin-language-server/server/build/install/server/bin/kotlin-language-server")
-  (setq lsp-completion-enable nil)
-  (setq lsp-rust-server 'rust-analyzer) ; or 'rls
-  (general-define-key
-   :states 'normal
-   "grn" 'lsp-rename
-   "gra" 'lsp-execute-code-action
-   "grr" 'lsp-find-references
-   "gri" 'lsp-find-implementation
-   "grt" 'lsp-find-type-definition
-   "grd" 'lsp-find-definition
-   "g0" 'lsp-document-highlight)
- 
+    ;; `lsp-bash--bash-ls-server-command' resolves the system dependency to an
+    ;; absolute remote path.  The subsequent lsp-mode presence check feeds that
+    ;; absolute path back to `executable-find', which cannot resolve it through
+    ;; TRAMP.  Keep the executable name for remote buffers so TRAMP searches its
+    ;; configured remote PATH; leave local resolution unchanged.
+    (defun ox/lsp-bash-remote-command (original)
+        "Return a TRAMP-resolvable Bash language-server command."
+        (if (file-remote-p default-directory)
+            '("bash-language-server" "start")
+            (funcall original)))
+    (with-eval-after-load 'lsp-bash
+        (unless (advice-member-p #'ox/lsp-bash-remote-command
+                    'lsp-bash--bash-ls-server-command)
+            (advice-add 'lsp-bash--bash-ls-server-command
+                :around #'ox/lsp-bash-remote-command)))
+    (setq lsp-clients-kotlin-server-executable "~/builds/kotlin-language-server/server/build/install/server/bin/kotlin-language-server")
+    (setq lsp-completion-enable nil)
+    (setq lsp-rust-server 'rust-analyzer) ; or 'rls
+    (general-define-key
+        :states 'normal
+        "grn" 'lsp-rename
+        "gra" 'lsp-execute-code-action
+        "grr" 'lsp-find-references
+        "gri" 'lsp-find-implementation
+        "grt" 'lsp-find-type-definition
+        "grd" 'lsp-find-definition
+        "g0" 'lsp-document-highlight)
+    
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-  ;; (setq lsp-clients-angular-language-server-command					   ;;
-  ;; '("node"										   ;;
-  ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules/@angular/language-server" ;;
-  ;;   "--ngProbeLocations"								   ;;
-  ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
-  ;;   "--tsProbeLocations"								   ;;
-  ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
-  ;;   "--stdio"))									   ;;
+    ;; (setq lsp-clients-angular-language-server-command					   ;;
+    ;; '("node"										   ;;
+    ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules/@angular/language-server" ;;
+    ;;   "--ngProbeLocations"								   ;;
+    ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
+    ;;   "--tsProbeLocations"								   ;;
+    ;;   "~/.nvm/versions/node/v22.0.0/lib/node_modules"			   ;;
+    ;;   "--stdio"))									   ;;
   ;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-  (use-package lsp-pyright
-    :straight t
-    :custom
-    (lsp-pyright-langserver-command "pyright") ;; or basedpyright
-    (lsp-pyright-multi-root nil) ;; disable multi-root
-    :hook (python-ts-mode . (lambda ()
-                           (require 'lsp-pyright)
-                           (lsp-deferred)
-			    ;; enable python pyright flycheck
-			   (flycheck-add-next-checker 'lsp 'python-pyright))))
-  (setq lsp-clients-angular-language-server-command
+    (use-package lsp-pyright
+        :straight t
+        :custom
+        (lsp-pyright-langserver-command "pyright") ;; or basedpyright
+        (lsp-pyright-multi-root nil) ;; disable multi-root
+        :hook (python-ts-mode . (lambda ()
+                                    (require 'lsp-pyright)
+                                    (lsp-deferred)
+			            ;; enable python pyright flycheck
+			            (flycheck-add-next-checker 'lsp 'python-pyright))))
+
+    ;; (use-package lsp-pyright
+    ;;     :straight t
+    ;;     :after lsp-mode
+    ;;     :custom
+    ;;     (lsp-pyright-langserver-command "pyright") ;; or basedpyright
+    ;;     (lsp-pyright-multi-root nil) ;; disable multi-root
+    ;;     :hook
+    ;;     (python-ts-mode . ox/python-lsp-start)
+    ;;     :config
+    ;;     (defun ox/python-lsp-start ()
+    ;;         (require 'lsp-pyright)
+    ;;         (lsp-deferred))) 
+
+    (defun ox/python-configure-flycheck-chain ()
+        "Run Pyright's Flycheck checker after LSP diagnostics in Python buffers."
+        (when (and (derived-mode-p 'python-ts-mode)
+                  (bound-and-true-p flycheck-mode)
+                  (memq 'lsp flycheck-checkers)
+                  (memq 'python-pyright flycheck-checkers))
+            (flycheck-add-next-checker 'lsp 'python-pyright)))
+
+    (add-hook 'lsp-configure-hook #'ox/python-configure-flycheck-chain t)
+
+    (setq lsp-clients-angular-language-server-command
 	'("node"
-	  "/usr/local/lib/node_modules/@angular/language-server"
-	  "--ngProbeLocations"
-	  "/usr/local/lib/node_modules"
-	  "--tsProbeLocations"
-	  "/usr/local/lib/node_modules"
-	  "--stdio"))
+	     "/usr/local/lib/node_modules/@angular/language-server"
+	     "--ngProbeLocations"
+	     "/usr/local/lib/node_modules"
+	     "--tsProbeLocations"
+	     "/usr/local/lib/node_modules"
+	     "--stdio"))
 
-  ;; Configure Emmet LSP
-  (lsp-register-client
-   (make-lsp-client :new-connection (lsp-stdio-connection "emmet-ls" "--stdio")
-                    :major-modes '(typescript-ts-mode js-ts-mode html-mode css-ts-mode)
-                    :server-id 'emmet-ls))
+    ;; Configure Emmet LSP
+    (lsp-register-client
+        (make-lsp-client :new-connection (lsp-stdio-connection "emmet-ls" "--stdio")
+            :major-modes '(typescript-ts-mode js-ts-mode html-mode css-ts-mode)
+            :server-id 'emmet-ls))
 
-  (setq lsp-emmet-show-expanded-abbreviation t) ;; Show the expanded abbreviation in completion.
-  (setq lsp-emmet-show-abbreviation-as-suggestion t) ;; Show abbreviation as suggestion.
+    (setq lsp-emmet-show-expanded-abbreviation t) ;; Show the expanded abbreviation in completion.
+    (setq lsp-emmet-show-abbreviation-as-suggestion t) ;; Show abbreviation as suggestion.
 
-  ;; Configure TailwindCSS Intellisense
-  ;; (lsp-register-client
-  ;;  (make-lsp-client :new-connection (lsp-stdio-connection "tailwindcss-intellisense" "--stdio")
-  ;;                   :major-modes '(typescript-mode html-mode css-mode)
-  ;;                   :server-id 'tailwindcss))
-  ;; Use lsp-mode everywhere possible
-  (setq lsp-auto-guess-root t)
+    ;; Configure TailwindCSS Intellisense
+    ;; (lsp-register-client
+    ;;  (make-lsp-client :new-connection (lsp-stdio-connection "tailwindcss-intellisense" "--stdio")
+    ;;                   :major-modes '(typescript-mode html-mode css-mode)
+    ;;                   :server-id 'tailwindcss))
+    ;; Use lsp-mode everywhere possible
+    (setq lsp-auto-guess-root t)
 
-  (lsp-enable-which-key-integration t)
-  ;; The path to lsp-mode needs to be added to load-path as well as the
-  ;; path to the `clients' subdirectory.
-  (add-to-list 'load-path (expand-file-name "lib/lsp-mode" user-emacs-directory))
-  (add-to-list 'load-path (expand-file-name "lib/lsp-mode/clients" user-emacs-directory))
-  :commands (lsp lsp-deferred))
+    (lsp-enable-which-key-integration t)
+    ;; The path to lsp-mode needs to be added to load-path as well as the
+    ;; path to the `clients' subdirectory.
+    (add-to-list 'load-path (expand-file-name "lib/lsp-mode" user-emacs-directory))
+    (add-to-list 'load-path (expand-file-name "lib/lsp-mode/clients" user-emacs-directory))
+    :commands (lsp lsp-deferred))
 
 (ox/leader-keys
-  "l"  '(:ignore t :which-key "lsp")
-  "ld" 'xref-find-definitions
-  "lr" 'xref-find-references
-  "ln" 'lsp-ui-find-next-reference
-  "lp" 'lsp-ui-find-prev-reference
-  ;;"ls" 'counsel-imenu
-  "ls" 'consult-lsp-diagnostics
-  "le" 'lsp-ui-flycheck-list
-  "lS" 'lsp-ui-sideline-mode
-  "lX" 'lsp-execute-code-action
-  "lg"  '(:ignore t :which-key "find")
-  "lgr" 'lsp-find-references
-  "lgg" 'lsp-find-definition
-  "lge" 'lsp-treemacs-errors-list
-  "lgq" 'lsp-treemacs-quickfix-list
-  "lf" '(:ignore t :which-key "format")
-  "l==" 'lsp-format-buffer
-  "l=r" 'lsp-format-region
-  )
+    "l"  '(:ignore t :which-key "lsp")
+    "ld" 'xref-find-definitions
+    "lr" 'xref-find-references
+    "ln" 'lsp-ui-find-next-reference
+    "lp" 'lsp-ui-find-prev-reference
+    ;;"ls" 'counsel-imenu
+    "ls" 'consult-lsp-diagnostics
+    "le" 'lsp-ui-flycheck-list
+    "lS" 'lsp-ui-sideline-mode
+    "lX" 'lsp-execute-code-action
+    "lg"  '(:ignore t :which-key "find")
+    "lgr" 'lsp-find-references
+    "lgg" 'lsp-find-definition
+    "lge" 'lsp-treemacs-errors-list
+    "lgq" 'lsp-treemacs-quickfix-list
+    "lf" '(:ignore t :which-key "format")
+    "l==" 'lsp-format-buffer
+    "l=r" 'lsp-format-region
+    )
 (use-package lsp-ui
-  :straight t
-  :after lsp-mode
-  ;;:commands lsp-ivy-workspace-symbol
-  :hook (lsp-mode . lsp-ui-mode)
-  ;;:custom(lsp-ui-doc-position 'bottom)
-  :config
-  (setq lsp-ui-doc-enable t
+    :straight t
+    :after lsp-mode
+    ;;:commands lsp-ivy-workspace-symbol
+    :hook (lsp-mode . lsp-ui-mode)
+    ;;:custom(lsp-ui-doc-position 'bottom)
+    :config
+    (setq lsp-ui-doc-enable t
         lsp-ui-doc-use-childframe t
         lsp-ui-doc-position 'top
         lsp-ui-doc-include-signature t
