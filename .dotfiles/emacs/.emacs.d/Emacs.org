@@ -184,6 +184,18 @@ Set TERMINAL_CONFIGS_ROOT when the checkout lives elsewhere."
 (setq package-native-compile t)
 ;;(setq use-package-compute-statistics t)
 ;;(setq use-package-verbose t)
+(use-package tramp
+  :straight t
+  :demand t)
+
+(use-package tramp-rpc
+  :after tramp
+  :straight '(tramp-rpc
+              :host github
+              :repo "ArthurHeymans/emacs-tramp-rpc"
+              :branch "master"
+              :lisp-dir "lisp"))
+
 #+end_src
 
 * Keep Folders Clean
