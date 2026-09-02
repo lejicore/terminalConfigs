@@ -375,7 +375,7 @@ We use the no-littering package to keep folders where we edit files and the Emac
   "Cross-platform frame transparency."
   :group 'frames)
 
-(defcustom my-opacity 86
+(defcustom my-opacity 30
   "Background opacity for graphical Emacs frames.
 100 means opaque, 0 means fully transparent."
   :type 'integer
