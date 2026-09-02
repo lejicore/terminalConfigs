@@ -113,8 +113,11 @@ in
     taps = [
       "koekeishiya/formulae"
       #To install JankyBoders
-      "FelixKratz/formulae"
-      "mhaeuser/mhaeuser"
+      {
+        name = "FelixKratz/formulae";
+        trusted = true;
+
+      }
     ];
     brews = [
       "borders"
