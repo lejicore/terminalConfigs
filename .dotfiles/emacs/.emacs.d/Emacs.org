@@ -1846,6 +1846,7 @@ kill switch, or =ox-ghostel-ssh-debug= to t for sanitized diagnostics.
   :straight t
   :custom
   (ghostel-term "xterm-kitty")
+  (push '("rpc" login-shell) ghostel-tramp-shells)
   :bind (:map project-prefix-map
               ("m" . ghostel-project)
               ("M" . ghostel-project-list-buffers)))
