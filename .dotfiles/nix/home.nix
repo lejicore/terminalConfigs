@@ -16,6 +16,8 @@ let
   emacsDir = "${homeDir}/terminalConfigs/.dotfiles/emacs/.emacs.d";
   emacsBin = "${pkgs.emacsLejiWithPackages}/bin/emacs";
 
+  scriptsDir = "${homeDir}/terminalConfigs/.dotfiles/scripts/scripts";
+
   pgrepBin = if isDarwin then "/usr/bin/pgrep" else "${pkgs.procps}/bin/pgrep";
 
   removePasswordScript = pkgs.writeShellScript "remove-password-after-syncthing" ''
@@ -109,7 +111,7 @@ lib.mkMerge [
         source = ../kitty/.config/kitty;
       };
       "scripts" = {
-        source = ../scripts/scripts;
+        source = config.lib.file.mkOutOfStoreSymlink scriptsDir;
       };
       ".tmux.conf" = {
         source = ../tmux/.tmux.conf;
