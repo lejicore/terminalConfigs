@@ -56,4 +56,5 @@ trap cleanup EXIT
 
 "$GIT_BIN" add "${SECRET_FILES[@]}"
 
-nix run home-manager -- "$@" switch --flake "${ROOT_DIR}/.dotfiles/nix#$(whoami)"
+#nix run home-manager -- "$@" switch --flake "${ROOT_DIR}/.dotfiles/nix#$(whoami)"
+home-manager switch --flake "${ROOT_DIR}/.dotfiles/nix#$(whoami)"
