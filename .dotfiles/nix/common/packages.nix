@@ -103,4 +103,5 @@ in
   dbeaver-bin
   pkgconf
   tailscale
+  taskwarrior3
 ]
