@@ -2597,36 +2597,15 @@ because compile mode is too slow"
     (use-package lsp-pyright
         :straight t
         :custom
-        (lsp-pyright-langserver-command "pyright") ;; or basedpyright
-        (lsp-pyright-multi-root nil) ;; disable multi-root
-        :hook (python-ts-mode . (lambda ()
-                                    (require 'lsp-pyright)
-                                    (lsp-deferred)
-			            ;; enable python pyright flycheck
-			            (flycheck-add-next-checker 'lsp 'python-pyright))))
+        (lsp-pyright-langserver-command "pyright")
+        (lsp-pyright-multi-root nil)
+        :hook
+        (python-ts-mode . ox/python-lsp-pyright))
 
-    ;; (use-package lsp-pyright
-    ;;     :straight t
-    ;;     :after lsp-mode
-    ;;     :custom
-    ;;     (lsp-pyright-langserver-command "pyright") ;; or basedpyright
-    ;;     (lsp-pyright-multi-root nil) ;; disable multi-root
-    ;;     :hook
-    ;;     (python-ts-mode . ox/python-lsp-start)
-    ;;     :config
-    ;;     (defun ox/python-lsp-start ()
-    ;;         (require 'lsp-pyright)
-    ;;         (lsp-deferred))) 
-
-    (defun ox/python-configure-flycheck-chain ()
-        "Run Pyright's Flycheck checker after LSP diagnostics in Python buffers."
-        (when (and (derived-mode-p 'python-ts-mode)
-                  (bound-and-true-p flycheck-mode)
-                  (memq 'lsp flycheck-checkers)
-                  (memq 'python-pyright flycheck-checkers))
-            (flycheck-add-next-checker 'lsp 'python-pyright)))
-
-    (add-hook 'lsp-configure-hook #'ox/python-configure-flycheck-chain t)
+    (defun ox/python-lsp-pyright ()
+        "Start Pyright through lsp-mode for Python."
+        (require 'lsp-pyright)
+        (lsp-deferred))
 
     (setq lsp-clients-angular-language-server-command
 	'("node"
