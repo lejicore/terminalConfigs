@@ -2065,10 +2065,10 @@ Adding [[(define-key evil-motion-state-map (kbd "\\"][\]] as a secondary leader 
     (add-to-list 'evil-emacs-state-modes mode)))
 ;;(evil-set-initial-state mode 'emacs)))
 (use-package evil
-  ;;:straight t
-  :straight '(evil :host github
-		   :repo "emacs-evil/evil"
-		   :branch "master")
+  :straight t
+  ;; :straight '(evil :host github
+  ;;       	   :repo "emacs-evil/evil"
+  ;;       	   :branch "master")
 
   :init
   (setq evil-want-integration t)
