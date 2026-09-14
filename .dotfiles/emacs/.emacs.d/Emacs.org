@@ -2489,20 +2489,19 @@ because compile mode is too slow"
 * Syntax Checking
 #+begin_src emacs-lisp
 (use-package flycheck
-  :straight t
-  ;; :after lsp-mode
-  :config
-  (setq flycheck-emacs-lisp-load-path 'inherit)
-  :init (global-flycheck-mode))
+    :straight t
+    ;; :after lsp-mode
+    :init
+      :hook (;;(after-init . global-flycheck-mode)
+         ;; Show diagnostics inline, next to the code (Error Lens style)
+         (after-init . global-flycheck-annotate-mode))
+    :config
+    (setq flycheck-emacs-lisp-load-path 'inherit))
 (use-package consult-flycheck
-  :straight t
-  :general (:states '(normal visual)
-		    :keymaps 'prog-mode-map
-		    "SPC fl" 'consult-flycheck))
-
-(defun ox/org-flycheck-setup ()
-  "Disable Flycheck's incompatible `org-lint' checker on Emacs 31."
-  (setq-local flycheck-disabled-checkers '(org-lint)))
+    :straight t
+    :general (:states '(normal visual)
+                 :keymaps 'prog-mode-map
+                 "SPC fl" 'consult-flycheck))
 #+end_src
 * Language Servers
 [[https://github.com/blahgeek/emacs-lsp-booster][emacs-lsp-booster]] increase performance by providing a wrapper-executable around lsp-programs.
@@ -2854,7 +2853,6 @@ We then had to define the =N= keybinding again once [[(with-eval-after-load 'for
     :commands (org-capture org-agenda)
     :hook ((org-mode . ox/org-mode-setup)
 	      (org-mode . ox/org-mode-init)
-	      (org-mode . ox/org-flycheck-setup)
 	      (org-mode . (lambda()
 		              (set-face-attribute 'org-table nil :inherit 'fixed-pitch)))
 	      (org-mode . (lambda () (org-superstar-mode 0))))
