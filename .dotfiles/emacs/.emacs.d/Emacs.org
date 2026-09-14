@@ -3616,6 +3616,22 @@ so use-package can load it. By using straight it does not work. Waiting for this
   :hook((python-base-mode yaml-mode c-mode makefile-gmake-mode) . agressive-indent-mode)
   :config
   (global-aggressive-indent-mode 1))
+
+(defun ox/indent-bars-guard-stale-depth-timer (orig-fn buffer)
+  "Ignore an indent-bars depth timer whose buffer state was torn down."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      ;; The timer is one-shot; don't leave a stale timer object behind.
+      (unless (and indent-bars-mode
+                   (numberp indent-bars--offset))
+        (setq indent-bars--highlight-timer nil))
+      (when (and indent-bars-mode
+                 (numberp indent-bars--offset))
+        (funcall orig-fn buffer)))))
+
+(with-eval-after-load 'indent-bars
+  (advice-add #'indent-bars--update-current-depth-highlight-in-buffer
+              :around #'ox/indent-bars-guard-stale-depth-timer))
 #+end_src
 * Dash Docs
 We are using consult-dash as an ui-front end to parse dash-docs
