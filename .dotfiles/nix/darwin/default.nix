@@ -29,6 +29,14 @@ in
   launchd.daemons.linux-builder = {
     environment.NIX_DISK_IMAGE =
       "/Volumes/NixBuilder/linux-builder/nixos.qcow2";
+    environment.NIX_CONFIG = "plugin-files =";
+    environment.QEMU_OPTS = "-machine virt,gic-version=3,accel=hvf";
+    serviceConfig.ProgramArguments = lib.mkForce [
+      "/Applications/Nix Linux Builder.app/Contents/MacOS/nix-linux-builder-launcher"
+      "/bin/sh"
+      "-c"
+      "/bin/wait4path /nix/store && exec ${config.launchd.daemons.linux-builder.command}"
+    ];
     # IMPORTANT:
     # Do not override KeepAlive or RunAtLoad here.
     # nix-darwin's linux-builder relies on its stock service lifecycle.
@@ -36,6 +44,11 @@ in
   nix = {
     linux-builder = {
       enable = true;
+      supportedFeatures = [
+        "benchmark"
+        "big-parallel"
+        "nixos-test"
+      ];
       config = {
         nix.settings.ssl-cert-file = "/etc/ssl/certs/ca-certificates.crt";
         swapDevices = lib.mkVMOverride [
