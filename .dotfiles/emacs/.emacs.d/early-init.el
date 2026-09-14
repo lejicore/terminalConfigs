@@ -1,4 +1,15 @@
 ;;; -*- lexical-binding: t; -*-
+
+(defun ox/preseed-xsetup-faces (orig frame)
+  "Work around an Emacs 31 NS first-frame face initialization ordering bug."
+  (dolist (face '(minibuffer-prompt help-key-binding))
+    (unless (internal-lisp-face-p face frame)
+      (internal-make-lisp-face face frame)))
+  (funcall orig frame))
+(with-eval-after-load 'term/common-win
+  (advice-add 'x-setup-function-keys
+              :around #'ox/preseed-xsetup-faces))
+
 (setq package-enable-at-startup nil)
 ;; Emacs 31 warns when loading Elisp files without an explicit
 ;; `lexical-binding' cookie. Many third-party straight packages still omit it,
