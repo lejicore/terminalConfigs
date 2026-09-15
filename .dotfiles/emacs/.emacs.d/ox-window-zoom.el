@@ -17,6 +17,8 @@
                   (&optional frame set-persp-special-last-buffer))
 (declare-function persp-restore-window-conf "persp-mode"
                   (&optional frame persp new-frame-p))
+(declare-function persp-activate "persp-mode"
+                  (persp &optional frame-or-window new-frame-p))
 (declare-function persp-asave-on-exit "persp-mode" (&optional interactive-query opt))
 (declare-function persp-special-last-buffer-make-current "persp-mode" ())
 (declare-function persp-window-state-get "persp-mode"
@@ -89,6 +91,11 @@ perspective is killed.")
 
 (defun ox-window-zoom--around-persp-restore-window-conf (original &rest args)
   "Keep persp-mode's internal layout restore from leaving an active zoom."
+  (let ((ox-window-zoom--inhibit t))
+    (apply original args)))
+
+(defun ox-window-zoom--around-persp-activate (original &rest args)
+  "Keep the complete persp-mode activation transaction internal."
   (let ((ox-window-zoom--inhibit t))
     (apply original args)))
 
@@ -172,7 +179,12 @@ In an unzoomed perspective, a single-window layout is left unchanged."
             #'ox-window-zoom--around-persp-asave-on-exit)
 (advice-add 'persp-restore-window-conf :around
             #'ox-window-zoom--around-persp-restore-window-conf)
-(dolist (function '(split-window delete-window delete-other-windows window-resize))
+(advice-add 'persp-activate :around
+            #'ox-window-zoom--around-persp-activate)
+(dolist (function '(split-window delete-window delete-other-windows
+                    enlarge-window shrink-window
+                    enlarge-window-horizontally shrink-window-horizontally
+                    balance-windows fit-window-to-buffer maximize-window))
   (advice-add function :around #'ox-window-zoom--around-structural-mutation))
 (add-hook 'persp-activated-functions #'ox-window-zoom--activate-perspective)
 (add-hook 'persp-before-kill-functions #'ox-window-zoom--forget-perspective)

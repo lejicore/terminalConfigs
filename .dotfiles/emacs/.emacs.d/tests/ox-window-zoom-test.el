@@ -143,6 +143,26 @@
             (should (= 1 (length (window-list)))))
         (ox-window-zoom-test--kill-buffers (list first second))))))
 
+(ert-deftest ox-window-zoom-keeps-state-during-minibuffer-window-resize ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-minibuffer-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-minibuffer-second*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout "minibuffer" first second)
+            (let ((expected (ox-window-zoom-test--state))
+                  (perspective (get-current-persp)))
+              (ox-window-zoom-toggle)
+              ;; This is the internal resize issued for the active
+              ;; minibuffer window during minibuffer setup.  Keep it at zero
+              ;; so the batch test does not need an interactive input stream.
+              (window-resize (minibuffer-window) 0)
+              (should (= 1 (length (window-list))))
+              (should (gethash perspective ox-window-zoom--states))
+              (ox-window-zoom-toggle)
+              (should (equal expected (ox-window-zoom-test--state)))))
+        (ox-window-zoom-test--kill-buffers (list first second))))))
+
 (ert-deftest ox-window-zoom-keeps-independent-state-across-perspectives ()
   (ox-window-zoom-test--with-persp-mode
     (let ((a-first (ox-window-zoom-test--make-buffer "*zoom-a-first*"))
