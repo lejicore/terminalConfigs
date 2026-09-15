@@ -11,6 +11,7 @@
 !ox-ghostel-ssh.el
 !ox-terminal.el
 !ox-buffer-navigation.el
+!ox-window-zoom.el
 !libexec/
 !libexec/ox-ghostel-ssh
 !tests/

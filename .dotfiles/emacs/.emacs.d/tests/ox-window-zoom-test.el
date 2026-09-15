@@ -1,0 +1,150 @@
+;;; ox-window-zoom-test.el --- Tests for perspective-local window zoom -*- lexical-binding: t; -*-
+
+(require 'ert)
+(require 'persp-mode)
+
+(let ((source-directory
+       (file-name-directory (directory-file-name
+                             (file-name-directory (or load-file-name
+                                                      buffer-file-name)))))
+      (persp-directory
+       (expand-file-name "~/.cache/emacs/straight/repos/persp-mode.el/")))
+  (add-to-list 'load-path source-directory)
+  (when (file-directory-p persp-directory)
+    (add-to-list 'load-path persp-directory)))
+
+(require 'ox-window-zoom)
+
+(defmacro ox-window-zoom-test--with-persp-mode (&rest body)
+  "Run BODY with a fresh, non-persisting persp-mode instance."
+  (declare (indent 0) (debug t))
+  `(let ((persp-auto-save-opt 0)
+         (persp-autokill-buffer-on-remove nil)
+         (persp-autokill-persp-when-removed-last-buffer nil)
+         (ox-window-zoom--states (make-hash-table :test #'eq)))
+     (when (bound-and-true-p persp-mode)
+       (persp-mode -1))
+     (persp-mode 1)
+     (unwind-protect
+         (progn ,@body)
+       (clrhash ox-window-zoom--states)
+       (when (bound-and-true-p persp-mode)
+         (persp-mode -1)))))
+
+(defun ox-window-zoom-test--make-buffer (name)
+  "Make a distinguishable test buffer named NAME."
+  (let ((buffer (generate-new-buffer name)))
+    (with-current-buffer buffer
+      (insert "first line\nsecond line\nthird line\n"))
+    buffer))
+
+(defun ox-window-zoom-test--make-layout (name first second)
+  "Create a two-window layout for NAME displaying FIRST and SECOND."
+  (persp-switch name)
+  (persp-add-buffer (list first second) (get-current-persp) nil nil)
+  (switch-to-buffer first)
+  (delete-other-windows)
+  (let ((other (split-window-right)))
+    (set-window-buffer other second)
+    (set-window-point (selected-window) 3)
+    (set-window-point other 7)
+    (select-window other)))
+
+(defun ox-window-zoom-test--state ()
+  "Return the complete current frame window state."
+  (window-state-get (frame-root-window) t))
+
+(defun ox-window-zoom-test--kill-buffers (buffers)
+  "Kill live BUFFERS without persp-mode's foreign-buffer prompt."
+  (dolist (buffer buffers)
+    (when (buffer-live-p buffer)
+      (let ((persp-mode nil))
+        (kill-buffer buffer)))))
+
+(ert-deftest ox-window-zoom-restores-the-exact-layout-and-selection ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-second*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout "zoom" first second)
+            (let ((expected (ox-window-zoom-test--state))
+                  (perspective (get-current-persp)))
+              (ox-window-zoom-toggle)
+              (should (= 1 (length (window-list))))
+              (should (eq (window-buffer (selected-window)) second))
+              (should (gethash perspective ox-window-zoom--states))
+              (should (equal expected (safe-persp-window-conf perspective)))
+              (ox-window-zoom-toggle)
+              (should (equal expected (ox-window-zoom-test--state)))
+              (should (eq (selected-window)
+                          (cl-find-if
+                           (lambda (window)
+                             (eq (window-buffer window) second))
+                           (window-list))))
+              (should-not (gethash perspective ox-window-zoom--states))))
+        (ox-window-zoom-test--kill-buffers (list first second))))))
+
+(ert-deftest ox-window-zoom-is-benign-with-one-window ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((buffer (ox-window-zoom-test--make-buffer "*zoom-single*")))
+      (unwind-protect
+          (progn
+            (persp-switch "single")
+            (persp-add-buffer buffer (get-current-persp) nil nil)
+            (switch-to-buffer buffer)
+            (delete-other-windows)
+            (ox-window-zoom-toggle)
+            (should (= 1 (length (window-list))))
+            (should-not (gethash (get-current-persp)
+                                 ox-window-zoom--states)))
+        (when (buffer-live-p buffer)
+          (let ((persp-mode nil))
+            (kill-buffer buffer)))))))
+
+(ert-deftest ox-window-zoom-keeps-independent-state-across-perspectives ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((a-first (ox-window-zoom-test--make-buffer "*zoom-a-first*"))
+          (a-second (ox-window-zoom-test--make-buffer "*zoom-a-second*"))
+          (b-first (ox-window-zoom-test--make-buffer "*zoom-b-first*"))
+          (b-second (ox-window-zoom-test--make-buffer "*zoom-b-second*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout "A" a-first a-second)
+            (let ((a-state (ox-window-zoom-test--state))
+                  (a-perspective (get-current-persp)))
+              (ox-window-zoom-test--make-layout "B" b-first b-second)
+              (let ((b-state (ox-window-zoom-test--state))
+                    (b-perspective (get-current-persp)))
+                (persp-switch "A")
+                (ox-window-zoom-toggle)
+                (should (= 1 (length (window-list))))
+                (persp-switch "B")
+                (ox-window-zoom-toggle)
+                (should (= 1 (length (window-list))))
+                (should (gethash a-perspective ox-window-zoom--states))
+                (should (gethash b-perspective ox-window-zoom--states))
+
+                ;; Switching back and forth while both are zoomed must not
+                ;; replace either perspective's selected buffer.
+                (persp-switch "A")
+                (should (= 1 (length (window-list))))
+                (should (eq (window-buffer (selected-window)) a-second))
+                (persp-switch "B")
+                (should (= 1 (length (window-list))))
+                (should (eq (window-buffer (selected-window)) b-second))
+
+                ;; Unzoom B, then A, following the user-visible sequence.
+                (ox-window-zoom-toggle)
+                (should (equal b-state (ox-window-zoom-test--state)))
+                (should-not (gethash b-perspective ox-window-zoom--states))
+                (persp-switch "A")
+                (should (= 1 (length (window-list))))
+                (ox-window-zoom-toggle)
+                (should (equal a-state (ox-window-zoom-test--state)))
+                (should-not (gethash a-perspective ox-window-zoom--states))))
+        (ox-window-zoom-test--kill-buffers
+         (list a-first a-second b-first b-second)))))))
+
+(provide 'ox-window-zoom-test)
+;;; ox-window-zoom-test.el ends here

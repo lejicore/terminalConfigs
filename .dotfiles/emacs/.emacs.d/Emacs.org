@@ -523,7 +523,7 @@ Using persp-mode to create different workspaces
     ;; are separate modules rooted in the source checkout, not in the runtime
     ;; `user-emacs-directory'.
     (dolist (module '("ox-workspace" "ox-ghostel-ssh" "ox-terminal"
-                         "ox-buffer-navigation"))
+                         "ox-buffer-navigation" "ox-window-zoom"))
         (load (expand-file-name module ox/emacs-source-directory) nil 'nomessage))
 
     (defun ox/persp-ephemeral-buffer-p (buffer)
@@ -4372,6 +4372,7 @@ Emacs while it unwinds the startup minibuffer."
     "ww" '(ace-window :which-key "ace-window")
     "ws" '(ace-swap-window :which-key "ace-swap")
     "wd" '(ace-delete-window :which-key "ace-delete-window")
+    "wz" '(ox-window-zoom-toggle :which-key "toggle window zoom")
     "wo" '(ace-delete-other-windows : which-key "ace-delete-other-windows"))
 #+end_src
 * coc-damage-calculator
