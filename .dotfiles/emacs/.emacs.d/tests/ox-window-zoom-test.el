@@ -50,9 +50,33 @@
     (set-window-point other 7)
     (select-window other)))
 
+(defun ox-window-zoom-test--make-three-window-layout (name first second third)
+  "Create a three-window layout for NAME displaying FIRST, SECOND, THIRD."
+  (persp-switch name)
+  (persp-add-buffer (list first second third) (get-current-persp) nil nil)
+  (switch-to-buffer first)
+  (delete-other-windows)
+  (let ((second-window (split-window-right)))
+    (set-window-buffer second-window second)
+    (let ((third-window (split-window-below)))
+      (set-window-buffer third-window third))
+    (select-window second-window)))
+
 (defun ox-window-zoom-test--state ()
   "Return the complete current frame window state."
   (window-state-get (frame-root-window) t))
+
+(defun ox-window-zoom-test--visible-state ()
+  "Return the user-visible state of every current frame window."
+  (mapcar (lambda (window)
+            (list (buffer-name (window-buffer window))
+                  (window-point window)
+                  (window-start window)
+                  (window-edges window)
+                  (window-hscroll window)
+                  (window-vscroll window)
+                  (eq window (selected-window))))
+          (window-list)))
 
 (defun ox-window-zoom-test--kill-buffers (buffers)
   "Kill live BUFFERS without persp-mode's foreign-buffer prompt."
@@ -102,6 +126,23 @@
           (let ((persp-mode nil))
             (kill-buffer buffer)))))))
 
+(ert-deftest ox-window-zoom-keeps-state-for-buffer-switching ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-switch-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-switch-second*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout "switch" first second)
+            (let ((perspective (get-current-persp)))
+              (ox-window-zoom-toggle)
+              (switch-to-buffer first)
+              (should (= 1 (length (window-list))))
+              (should (eq (window-buffer (selected-window)) first))
+              (should (gethash perspective ox-window-zoom--states)))
+            (switch-to-buffer second)
+            (should (= 1 (length (window-list)))))
+        (ox-window-zoom-test--kill-buffers (list first second))))))
+
 (ert-deftest ox-window-zoom-keeps-independent-state-across-perspectives ()
   (ox-window-zoom-test--with-persp-mode
     (let ((a-first (ox-window-zoom-test--make-buffer "*zoom-a-first*"))
@@ -145,6 +186,93 @@
                 (should-not (gethash a-perspective ox-window-zoom--states))))
         (ox-window-zoom-test--kill-buffers
          (list a-first a-second b-first b-second)))))))
+
+(ert-deftest ox-window-zoom-unzooms-before-split-window-below ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-split-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-split-second*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout "split-below" first second)
+            (ox-window-zoom-toggle)
+            (should (= 1 (length (window-list))))
+            (split-window-below)
+            (should-not (gethash (get-current-persp)
+                                 ox-window-zoom--states))
+            (should (= 3 (length (window-list))))
+            (let ((expected (ox-window-zoom-test--visible-state)))
+              (ox-window-zoom-toggle)
+              (should (= 1 (length (window-list))))
+              (ox-window-zoom-toggle)
+              (should (= 3 (length (window-list))))
+              (should (equal expected
+                             (ox-window-zoom-test--visible-state)))))
+        (ox-window-zoom-test--kill-buffers (list first second))))))
+
+(ert-deftest ox-window-zoom-unzooms-before-split-window-right-and-restores-three-window-layout ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-three-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-three-second*"))
+          (third (ox-window-zoom-test--make-buffer "*zoom-three-third*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-three-window-layout
+             "split-right-three" first second third)
+            (should (= 3 (length (window-list))))
+            (ox-window-zoom-toggle)
+            (should (= 1 (length (window-list))))
+            (split-window-right)
+            (should-not (gethash (get-current-persp)
+                                 ox-window-zoom--states))
+            (should (= 4 (length (window-list))))
+            (let ((expected (ox-window-zoom-test--state)))
+              (ox-window-zoom-toggle)
+              (should (= 1 (length (window-list))))
+              (ox-window-zoom-toggle)
+              (should (= 4 (length (window-list))))
+              (should (equal expected (ox-window-zoom-test--state)))))
+        (ox-window-zoom-test--kill-buffers
+         (list first second third))))))
+
+(ert-deftest ox-window-zoom-unzooms-before-delete-and-resize-mutations ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((delete-first (ox-window-zoom-test--make-buffer "*zoom-delete-first*"))
+          (delete-second (ox-window-zoom-test--make-buffer "*zoom-delete-second*"))
+          (delete-other-first
+           (ox-window-zoom-test--make-buffer "*zoom-delete-other-first*"))
+          (delete-other-second
+           (ox-window-zoom-test--make-buffer "*zoom-delete-other-second*"))
+          (resize-first (ox-window-zoom-test--make-buffer "*zoom-resize-first*"))
+          (resize-second (ox-window-zoom-test--make-buffer "*zoom-resize-second*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout
+             "delete" delete-first delete-second)
+            (ox-window-zoom-toggle)
+            (delete-window)
+            (should (= 1 (length (window-list))))
+            (should-not (gethash (get-current-persp)
+                                 ox-window-zoom--states))
+
+            (ox-window-zoom-test--make-layout
+             "delete-other" delete-other-first delete-other-second)
+            (ox-window-zoom-toggle)
+            (delete-other-windows)
+            (should (= 1 (length (window-list))))
+            (should-not (gethash (get-current-persp)
+                                 ox-window-zoom--states))
+
+            (ox-window-zoom-test--make-layout
+             "resize" resize-first resize-second)
+            (ox-window-zoom-toggle)
+            (enlarge-window 1 t)
+            (should (= 2 (length (window-list))))
+            (should-not (gethash (get-current-persp)
+                                 ox-window-zoom--states)))
+        (ox-window-zoom-test--kill-buffers
+         (list delete-first delete-second
+               delete-other-first delete-other-second
+               resize-first resize-second))))))
 
 (provide 'ox-window-zoom-test)
 ;;; ox-window-zoom-test.el ends here
