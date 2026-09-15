@@ -143,6 +143,81 @@
             (should (= 1 (length (window-list)))))
         (ox-window-zoom-test--kill-buffers (list first second))))))
 
+(ert-deftest ox-window-zoom-restores-the-live-pane-after-display-and-quit ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-live-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-live-second*"))
+          (displayed (ox-window-zoom-test--make-buffer "*zoom-live-displayed*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout "live-pane" first second)
+            (ox-window-zoom-toggle)
+            ;; This reproduces a package opening a pane-local buffer without
+            ;; treating its display machinery as a layout mutation.
+            (display-buffer displayed '((display-buffer-same-window)))
+            (should (= 1 (length (window-list))))
+            (should (eq (window-buffer (selected-window)) displayed))
+            (should (gethash (get-current-persp) ox-window-zoom--states))
+            (quit-window nil (selected-window))
+            (should (= 1 (length (window-list))))
+            (should-not (eq (window-buffer (selected-window)) displayed))
+            (should (gethash (get-current-persp) ox-window-zoom--states))
+            (ox-window-zoom-toggle)
+            (should (= 2 (length (window-list))))
+            (should-not (eq (window-buffer (selected-window)) displayed))
+            (should-not (gethash (get-current-persp) ox-window-zoom--states)))
+        (ox-window-zoom-test--kill-buffers
+         (list first second displayed))))))
+
+(ert-deftest ox-window-zoom-restores-current-buffer-and-point ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-current-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-current-second*"))
+          (current (ox-window-zoom-test--make-buffer "*zoom-current-buffer*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout "current-pane" first second)
+            (ox-window-zoom-toggle)
+            (switch-to-buffer current)
+            (goto-char 12)
+            (set-window-start (selected-window) 7 t)
+            (ox-window-zoom-toggle)
+            (let ((window (cl-find-if
+                           (lambda (candidate)
+                             (eq (window-buffer candidate) current))
+                           (window-list))))
+              (should window)
+              (should (= 12 (window-point window)))
+              (should (= 7 (window-start window)))))
+        (ox-window-zoom-test--kill-buffers
+         (list first second current))))))
+
+(ert-deftest ox-window-zoom-keeps-live-pane-across-perspective-switch ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-switch-live-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-switch-live-second*"))
+          (current (ox-window-zoom-test--make-buffer "*zoom-switch-live-current*"))
+          (other (ox-window-zoom-test--make-buffer "*zoom-switch-live-other*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout
+             "switch-live" first second)
+            (ox-window-zoom-toggle)
+            (switch-to-buffer current)
+            (persp-switch "switch-live-other")
+            (persp-add-buffer other (get-current-persp) nil nil)
+            (switch-to-buffer other)
+            (delete-other-windows)
+            (persp-switch "switch-live")
+            (should (= 1 (length (window-list))))
+            (should (gethash (get-current-persp) ox-window-zoom--states))
+            (should (eq (window-buffer (selected-window)) current))
+            (ox-window-zoom-toggle)
+            (should (= 2 (length (window-list))))
+            (should (eq (window-buffer (selected-window)) current)))
+        (ox-window-zoom-test--kill-buffers
+         (list first second current other))))))
+
 (ert-deftest ox-window-zoom-keeps-state-during-minibuffer-window-resize ()
   (ox-window-zoom-test--with-persp-mode
     (let ((first (ox-window-zoom-test--make-buffer "*zoom-minibuffer-first*"))
@@ -216,7 +291,8 @@
             (ox-window-zoom-test--make-layout "split-below" first second)
             (ox-window-zoom-toggle)
             (should (= 1 (length (window-list))))
-            (split-window-below)
+            (let ((this-command 'split-window-below))
+              (split-window-below))
             (should-not (gethash (get-current-persp)
                                  ox-window-zoom--states))
             (should (= 3 (length (window-list))))
@@ -227,6 +303,27 @@
               (should (= 3 (length (window-list))))
               (should (equal expected
                              (ox-window-zoom-test--visible-state)))))
+        (ox-window-zoom-test--kill-buffers (list first second))))))
+
+(ert-deftest ox-window-zoom-does-not-unzoom-for-programmatic-window-calls ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-programmatic-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-programmatic-second*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout "programmatic" first second)
+            (ox-window-zoom-toggle)
+            ;; A package may reach the same primitive while displaying a
+            ;; buffer.  It is not user layout intent merely because the
+            ;; primitive is also reachable from a command.
+            (let ((this-command 'display-buffer))
+              (split-window-below))
+            (should (= 2 (length (window-list))))
+            (should (gethash (get-current-persp) ox-window-zoom--states))
+            (ox-window-zoom-toggle)
+            (should (= 2 (length (window-list))))
+            (should-not (gethash (get-current-persp)
+                                 ox-window-zoom--states)))
         (ox-window-zoom-test--kill-buffers (list first second))))))
 
 (ert-deftest ox-window-zoom-unzooms-before-split-window-right-and-restores-three-window-layout ()
@@ -241,7 +338,8 @@
             (should (= 3 (length (window-list))))
             (ox-window-zoom-toggle)
             (should (= 1 (length (window-list))))
-            (split-window-right)
+            (let ((this-command 'split-window-right))
+              (split-window-right))
             (should-not (gethash (get-current-persp)
                                  ox-window-zoom--states))
             (should (= 4 (length (window-list))))
@@ -269,7 +367,8 @@
             (ox-window-zoom-test--make-layout
              "delete" delete-first delete-second)
             (ox-window-zoom-toggle)
-            (delete-window)
+            (let ((this-command 'delete-window))
+              (delete-window))
             (should (= 1 (length (window-list))))
             (should-not (gethash (get-current-persp)
                                  ox-window-zoom--states))
@@ -277,7 +376,8 @@
             (ox-window-zoom-test--make-layout
              "delete-other" delete-other-first delete-other-second)
             (ox-window-zoom-toggle)
-            (delete-other-windows)
+            (let ((this-command 'delete-other-windows))
+              (delete-other-windows))
             (should (= 1 (length (window-list))))
             (should-not (gethash (get-current-persp)
                                  ox-window-zoom--states))
@@ -285,7 +385,8 @@
             (ox-window-zoom-test--make-layout
              "resize" resize-first resize-second)
             (ox-window-zoom-toggle)
-            (enlarge-window 1 t)
+            (let ((this-command 'enlarge-window))
+              (enlarge-window 1 t))
             (should (= 2 (length (window-list))))
             (should-not (gethash (get-current-persp)
                                  ox-window-zoom--states)))
