@@ -126,6 +126,22 @@
           (let ((persp-mode nil))
             (kill-buffer buffer)))))))
 
+(ert-deftest ox-window-zoom-mode-line-indicator-follows-current-state ()
+  (ox-window-zoom-test--with-persp-mode
+    (let ((first (ox-window-zoom-test--make-buffer "*zoom-modeline-first*"))
+          (second (ox-window-zoom-test--make-buffer "*zoom-modeline-second*")))
+      (unwind-protect
+          (progn
+            (ox-window-zoom-test--make-layout "modeline" first second)
+            (should-not (ox-window-zoom--mode-line-indicator))
+            (should (= 1 (cl-count ox-window-zoom--mode-line-format
+                                   mode-line-misc-info :test #'equal)))
+            (ox-window-zoom-toggle)
+            (should (equal " 🎯" (ox-window-zoom--mode-line-indicator)))
+            (ox-window-zoom-toggle)
+            (should-not (ox-window-zoom--mode-line-indicator)))
+        (ox-window-zoom-test--kill-buffers (list first second))))))
+
 (ert-deftest ox-window-zoom-keeps-state-for-buffer-switching ()
   (ox-window-zoom-test--with-persp-mode
     (let ((first (ox-window-zoom-test--make-buffer "*zoom-switch-first*"))

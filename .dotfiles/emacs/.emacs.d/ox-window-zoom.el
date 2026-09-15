@@ -38,6 +38,10 @@ perspective is killed.")
 (defvar ox-window-zoom--inhibit nil
   "Non-nil while ox-window-zoom is performing its own window mutations.")
 
+(defconst ox-window-zoom--mode-line-format
+  '(:eval (ox-window-zoom--mode-line-indicator))
+  "Mode-line component for the current perspective's zoom state.")
+
 (defconst ox-window-zoom--user-structural-commands
   '(split-window split-window-below split-window-right
     delete-window delete-other-windows
@@ -57,6 +61,16 @@ The low-level primitives advised below are also used by display machinery;
 (defun ox-window-zoom--state (perspective)
   "Return the saved zoom state for PERSPECTIVE, or nil."
   (gethash perspective ox-window-zoom--states))
+
+(defun ox-window-zoom--mode-line-indicator ()
+  "Return the active zoom cue for the current perspective, or nil."
+  (when (ox-window-zoom--state
+         (ox-window-zoom--perspective (selected-frame)))
+    " 🎯"))
+
+(defun ox-window-zoom--refresh-mode-line ()
+  "Refresh mode lines after a zoom-state change."
+  (force-mode-line-update t))
 
 (defun ox-window-zoom--capture-state (frame)
   "Capture FRAME's native window state in the persp-mode-compatible form."
@@ -188,6 +202,7 @@ Return non-nil only when restoration succeeds."
           (ox-window-zoom--restore-live-pane
            (frame-selected-window frame) pane)
           (remhash perspective ox-window-zoom--states)
+          (ox-window-zoom--refresh-mode-line)
           (message "Window zoom restored in perspective %s"
                    (if perspective (persp-name perspective) "none"))
           t)
@@ -221,15 +236,26 @@ temporary one-window presentation."
              (ox-window-zoom--state perspective))
     (let ((ox-window-zoom--inhibit t))
       (with-selected-frame frame-or-window
-        (delete-other-windows (frame-selected-window frame-or-window))))))
+        (delete-other-windows (frame-selected-window frame-or-window)))))
+  (ox-window-zoom--refresh-mode-line))
 
 (defun ox-window-zoom--forget-perspective (perspective)
   "Discard runtime zoom state for PERSPECTIVE before it is killed."
-  (remhash perspective ox-window-zoom--states))
+  (remhash perspective ox-window-zoom--states)
+  (ox-window-zoom--refresh-mode-line))
 
 (defun ox-window-zoom--clear-states (&rest _)
   "Discard all runtime zoom state when persp-mode is disabled."
-  (clrhash ox-window-zoom--states))
+  (clrhash ox-window-zoom--states)
+  (ox-window-zoom--refresh-mode-line))
+
+(defun ox-window-zoom--setup-mode-line ()
+  "Install the zoom cue beside the existing mode-line miscellany."
+  (let ((misc-info (copy-sequence (default-value 'mode-line-misc-info))))
+    (setq-default mode-line-misc-info
+                  (append (delete ox-window-zoom--mode-line-format misc-info)
+                          (list ox-window-zoom--mode-line-format))))
+  (ox-window-zoom--refresh-mode-line))
 
 (defun ox-window-zoom--add-advice (function advice)
   "Install ADVICE on FUNCTION once, including across module reloads."
@@ -260,6 +286,7 @@ In an unzoomed perspective, a single-window layout is left unchanged."
               ;; Keep direct persp-mode subset saves from serializing the
               ;; temporary one-window display.
               (ox-window-zoom--save-perspective-state perspective saved-state)
+              (ox-window-zoom--refresh-mode-line)
               (message "Window zoom enabled in perspective %s"
                        (if perspective (persp-name perspective) "none")))
           (error
@@ -282,6 +309,7 @@ In an unzoomed perspective, a single-window layout is left unchanged."
    function #'ox-window-zoom--around-structural-mutation))
 (add-hook 'persp-activated-functions #'ox-window-zoom--activate-perspective)
 (add-hook 'persp-before-kill-functions #'ox-window-zoom--forget-perspective)
+(ox-window-zoom--setup-mode-line)
 
 (provide 'ox-window-zoom)
 ;;; ox-window-zoom.el ends here
