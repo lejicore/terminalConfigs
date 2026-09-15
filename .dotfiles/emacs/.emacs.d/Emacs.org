@@ -549,7 +549,10 @@ Using persp-mode to create different workspaces
     (defun consult-persp-buffer ()
         "Switch to a buffer within the current perspective using consult."
         (interactive)
-        (let* ((persp-buffers (mapcar #'buffer-name (persp-buffer-list-restricted)))
+        (let* ((persp-buffers
+            (cl-loop for buffer in (persp-buffer-list-restricted)
+                    when (buffer-live-p buffer)
+                    collect (buffer-name buffer)))
 	          (buffer (consult--read persp-buffers
 			      :prompt "Switch to buffer (current perspective): "
 			      :sort t
