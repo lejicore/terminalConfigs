@@ -104,4 +104,5 @@ in
   pkgconf
   tailscale
   taskwarrior3
+  cachix
 ]
