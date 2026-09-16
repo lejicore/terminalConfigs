@@ -306,16 +306,16 @@
         "treefmt-nix": "treefmt-nix_3"
       },
       "locked": {
-        "lastModified": 1788292928,
-        "narHash": "sha256-FWTDn+swI67MyWHOhR3hTLb9IiERg16FHugG6x6KvDA=",
+        "lastModified": 1789489259,
+        "narHash": "sha256-eL4+VJ/cnhsIFxDfaf4gv/AKiy0o44mxkKXR0gvDh3Q=",
         "owner": "lejicore",
         "repo": "nix-rage",
-        "rev": "25364c06bd22db18aad57fd17601bf40442001d4",
+        "rev": "052a21227105a00fb98a45fb563ba7ad8b66bb3e",
         "type": "github"
       },
       "original": {
         "owner": "lejicore",
-        "ref": "upstream-ready/darwin-plugin-abi",
+        "ref": "fix/scoped-plugin-loading",
         "repo": "nix-rage",
         "type": "github"
       }
@@ -432,11 +432,11 @@
     },
     "nixpkgs_5": {
       "locked": {
-        "lastModified": 1787814960,
-        "narHash": "sha256-PYZq1qzCJXC2zGI0mH07vrZBsw6DRBAOX0jN1pPtqOQ=",
+        "lastModified": 1789370336,
+        "narHash": "sha256-6RSEDHIWQtesQKWSu5qRai8L2h4KgCgMEfJHstW99G4=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "c27cdad491a991b11ed731760aa2ef8db0cb0410",
+        "rev": "c7def046b9a883d46974757852106483d741586f",
         "type": "github"
       },
       "original": {
