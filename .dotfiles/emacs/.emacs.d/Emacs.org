@@ -1738,6 +1738,10 @@ the correct way of doing it is to create our own prompt regexp system see: [[(de
         vterm-mode-map
         (kbd "C-\\ l")
         #'ox-buffer-navigation-switch-to-editing-buffer)
+    (evil-define-key '(visual insert normal)
+        vterm-mode-map
+        (kbd "C-\\ z")
+        #'ox-window-zoom-toggle)
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-{") 'multi-vterm-prev)
     ;; (evil-define-key '(visual insert normal) vterm-mode-map (kbd "C-}") 'multi-vterm-next)
 
