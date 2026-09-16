@@ -26,57 +26,100 @@ in
 
   #services.nix-daemon.enable = true;
   services.tailscale.enable = true;
-  launchd.daemons.linux-builder = {
-    environment.NIX_DISK_IMAGE =
-      "/Volumes/NixBuilder/linux-builder/nixos.qcow2";
-    environment.NIX_CONFIG = "plugin-files =";
-    environment.QEMU_OPTS = "-machine virt,gic-version=3,accel=hvf";
-    serviceConfig.ProgramArguments = lib.mkForce [
-      "/Applications/Nix Linux Builder.app/Contents/MacOS/nix-linux-builder-launcher"
-      "/bin/sh"
-      "-c"
-      "/bin/wait4path /nix/store && exec ${config.launchd.daemons.linux-builder.command}"
-    ];
-    # IMPORTANT:
-    # Do not override KeepAlive or RunAtLoad here.
-    # nix-darwin's linux-builder relies on its stock service lifecycle.
-  };
+   #launchd.daemons.linux-builder.environment.NIX_CONFIG = "plugin-files =";
+  # launchd.daemons.linux-builder = {
+  #   environment.NIX_CONFIG = "plugin-files =";
+
+  #   serviceConfig.ProgramArguments = lib.mkForce [
+  #     "/Applications/Nix Linux Builder.app/Contents/MacOS/nix-linux-builder-launcher"
+  #     "/bin/sh"
+  #     "-c"
+  #     "/bin/wait4path /nix/store && exec ${config.launchd.daemons.linux-builder.command}"
+  #   ];
+
+  #   # Keep stock KeepAlive / RunAtLoad.
+  # };
+
+  nix-rage.nixPackage = pkgs.nixVersions.latest;
   nix = {
     linux-builder = {
       enable = true;
-      supportedFeatures = [
-        "benchmark"
-        "big-parallel"
-        "nixos-test"
+
+      package = pkgs.darwin.linux-builder-vz;
+      # protocol = "ssh";
+
+      # Keep the VZ state completely separate from QEMU.
+      #workingDirectory = "/Volumes/NixBuilder/linux-builder-vz";
+
+      systems = [
+        "aarch64-linux"
+        "x86_64-linux"
       ];
-      config = {
-        nix.settings.ssl-cert-file = "/etc/ssl/certs/ca-certificates.crt";
-        swapDevices = lib.mkVMOverride [
-          {
-            device = "/var/lib/linux-builder.swap";
-            size = 8 * 1024;
 
-          }
-        ];
-        virtualisation = {
-          cores = 4;
-          darwin-builder = {
-            memorySize = 8 * 1024;
-            diskSize = 96 * 1024;
-          };
-        };
-      };
+      # supportedFeatures = [
+      #   #"kvm"
+      #   "benchmark"
+      #   "big-parallel"
+      #   #"nixos-test"
+      # ];
+
+      # config = {
+      #   networking.firewall.enable = false;
+      #   nix.settings.ssl-cert-file =
+      #     "/etc/ssl/certs/ca-certificates.crt";
+
+      #   swapDevices = lib.mkVMOverride [
+      #     {
+      #       device = "/nix/.rw-store/linux-builder.swap";
+      #       size = 8 * 1024;
+      #     }
+      #   ];
+
+      #   virtualisation = {
+      #     cores = 4;
+
+      #     darwin-builder = {
+      #       memorySize = 8 * 1024;
+      #       diskSize = 96 * 1024;
+      #     };
+
+      #     vz = {
+      #       nestedVirtualization = false;
+
+      #       # Very useful during migration.
+      #       console = "file";
+      #       consoleLog = "./console.log";
+      #     };
+      #   };
+      # };
     };
-    package = pkgs.nixVersions.latest;
-    #package = pkgs.nixVersions.nix_2_31; # for nix-rage compatibility
-    settings.trusted-users = [
-      "root"
-      "@admin"
-    ];
 
-    settings.experimental-features = "nix-command flakes";
-    settings.download-buffer-size = 67108864;
+    package = config.nix-rage.package;
+    #package = pkgs.nixVersions.nix_2_31; # for nix-rage compatibility
+    settings = {
+      trusted-users = [
+        "root"
+        "@admin"
+      ];
+
+      experimental-features = "nix-command flakes";
+      download-buffer-size = 67108864;
+
+      # Expensive custom builds that aren't available from cache.nixos.org.
+      # In particular: our custom Emacs build, nix-rage, and similar packages
+      # that we categorically refuse to compile twice. xD
+      extra-substituters = [
+        "https://lejicore.cachix.org"
+      ];
+
+      extra-trusted-public-keys = [
+        "lejicore.cachix.org-1:N+R7zCu3D8Os0n65QZvOWD+4LLF2XjDvn1tsAdNyxII="
+      ];
+
+    };
     optimise.automatic = true;
+
+
 
     #automatically gargage collect to reduce nix store size
     gc = {
