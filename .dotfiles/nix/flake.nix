@@ -24,7 +24,8 @@
     nix-rage = {
       #url = "github:renesat/nix-rage";
       #url = "github:lejicore/nix-rage?ref=fix_darwin_again";
-      url = "github:lejicore/nix-rage?ref=upstream-ready/darwin-plugin-abi";
+      #url = "github:lejicore/nix-rage?ref=upstream-ready/darwin-plugin-abi";
+      url = "github:lejicore/nix-rage?ref=fix/scoped-plugin-loading";
       #url = "path:~/dev/nix-rage";
       inputs.nixpkgs.follows = "nixpkgs";
 
