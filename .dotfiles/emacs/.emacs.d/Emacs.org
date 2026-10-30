@@ -524,8 +524,16 @@ Using persp-mode to create different workspaces
     ;; `user-emacs-directory'.
     (dolist (module '("ox-workspace" "ox-ghostel-ssh" "ox-terminal"
                          "ox-buffer-navigation" "ox-window-zoom"
-                         "ox-org-roam-copy-prompt"))
+                         "brain"))
         (load (expand-file-name module ox/emacs-source-directory) nil 'nomessage))
+
+    ;; `ox-org-roam-copy-prompt` requires org-roam, so it cannot be loaded
+    ;; eagerly with the modules above: at this point org-roam has not been
+    ;; activated yet, and one missing dependency would make this whole
+    ;; persp-mode body fail.  Load it when org-roam itself is available.
+    (with-eval-after-load 'org-roam
+        (load (expand-file-name "ox-org-roam-copy-prompt" ox/emacs-source-directory)
+              nil 'nomessage))
 
     (defun ox/persp-ephemeral-buffer-p (buffer)
         "Return non-nil when BUFFER should not be persisted by persp-mode."
@@ -2753,10 +2761,18 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 #+end_src
 * auth-source
 #+begin_src emacs-lisp
-(let* ((auth (auth-source-search :host "api.github.com" :user "lejicore^forge"))
-       (token (funcall (plist-get (car auth) :secret))))
-  ;; Now 'token' contains your GitHub token, and you can use it in your code.
-  )
+;; The GitHub token is optional.  `auth-source-search' can fail for reasons that
+;; have nothing to do with this configuration (as observed: ~/.authinfo.gpg is
+;; encrypted to a key this keyring no longer holds).  An uncaught error here
+;; aborts the whole rest of init, which is what silently left org-roam - and
+;; every later section - unloaded.
+(let* ((auth (ignore-errors
+               (auth-source-search :host "api.github.com" :user "lejicore^forge")))
+       (secret (plist-get (car auth) :secret))
+       (token (and secret
+                   (condition-case nil (funcall secret) (error nil)))))
+  ;; 'token' is nil when no readable credential exists; nothing here needs it.
+  token)
 
 (setenv "GPG_TTY" (format "%d" (string-to-number (shell-command-to-string "tty --file=/dev/tty"))))
 ;; (require 'epg)
