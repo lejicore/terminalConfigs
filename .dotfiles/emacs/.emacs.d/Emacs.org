@@ -381,7 +381,7 @@ We use the no-littering package to keep folders where we edit files and the Emac
   :type 'integer
   :group 'my/frame-transparency)
 
-(defcustom my-macos-blur-radius 10
+(defcustom my-macos-blur-radius 30
   "Blur radius for patched macOS NS Emacs builds."
   :type 'integer
   :group 'my/frame-transparency)
@@ -523,7 +523,8 @@ Using persp-mode to create different workspaces
     ;; are separate modules rooted in the source checkout, not in the runtime
     ;; `user-emacs-directory'.
     (dolist (module '("ox-workspace" "ox-ghostel-ssh" "ox-terminal"
-                         "ox-buffer-navigation" "ox-window-zoom"))
+                         "ox-buffer-navigation" "ox-window-zoom"
+                         "ox-org-roam-copy-prompt"))
         (load (expand-file-name module ox/emacs-source-directory) nil 'nomessage))
 
     (defun ox/persp-ephemeral-buffer-p (buffer)
@@ -2985,7 +2986,7 @@ We then had to define the =N= keybinding again once [[(with-eval-after-load 'for
 	      ((agenda "" ((org-deadline-warning-days 7)))
 	          (todo "NEXT"
 		      ((org-agenda-overriding-header "Next Tasks")))
-	          (tags-todo "active" ((org-agenda-overriding-header "Active Projects")))))
+	          (todo "ACTIVE" ((org-agenda-overriding-header "Active Projects")))))
 	     ;; (tags-todo "agenda/ACTIVE" ((org-agenda-overriding-header "Active Projects")))))
 
 	     ("h" "Habit Tasks"
@@ -3396,6 +3397,7 @@ Make invisible parts of Org elements appear visible.
   :straight t
   :bind (("C-c n l" . org-roam-buffer-toggle)
          ("C-c n f" . org-roam-node-find)
+         ("C-c n c" . ox/org-roam-copy-prompt)
          ("C-c n i" . org-roam-node-insert)
 	 :map org-mode-map
 	 ("C-M-I" . completion-at-point))
@@ -3423,6 +3425,25 @@ Make invisible parts of Org elements appear visible.
           org-roam-ui-follow t
           org-roam-ui-update-on-save t
           org-roam-ui-open-on-start t))
+
+(defun leji/org-roam-copy-first-src-block ()
+  "Pick an Org-roam node and copy its first source block."
+  (interactive)
+  (let* ((node (org-roam-node-read))
+         (file (org-roam-node-file node))
+         content)
+    (with-current-buffer (find-file-noselect file)
+      (org-with-wide-buffer
+       (goto-char (point-min))
+       (when (re-search-forward org-babel-src-block-regexp nil t)
+         (setq content (match-string-no-properties 5)))))
+    (if content
+        (progn
+          (kill-new content)
+          (message "Copied prompt: %s" (org-roam-node-title node)))
+      (user-error "No source block found in %s"
+                  (org-roam-node-title node)))))
+
 #+end_src
 * orgnote
 #+begin_src emacs-lisp
