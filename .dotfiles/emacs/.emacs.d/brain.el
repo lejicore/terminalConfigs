@@ -156,6 +156,12 @@ Nil means `transport/' beneath `brain-state-directory'."
 (defvar brain--attention (make-hash-table :test #'equal)
   "file_id -> attention reason.  Present means installs are refused.")
 
+(defvar brain--deferred (make-hash-table :test #'equal)
+  "file_id -> plist (:reason :operation-id :revision) for a deferred projection.
+A projection that overflows the contract bound or fails to parse is deferred
+here instead of being dropped: it is durable in the journal, visible in
+`brain-status' and never turns a committed install into an attention result.")
+
 (defvar brain--identities (make-hash-table :test #'equal)
   "Case-folded alias key -> file_id, used to refuse collapsing identities.")
 
@@ -683,6 +689,24 @@ The value is a unibyte string, or one of `missing', `mismatch', `oversize'."
 (defun brain--base-buffers (buffers)
   (delete-dups (mapcar #'brain--buffer-base buffers)))
 
+(defun brain--human-source-base (spec)
+  "Base buffer of a human save's own buffer, or nil for any other commit."
+  (let ((source (and (equal (or (plist-get spec :origin) "human") "human")
+                     (plist-get spec :buffer))))
+    (and (bufferp source) (buffer-live-p source) (brain--buffer-base source))))
+
+(defun brain--refreshable-buffers (spec buffers)
+  "BUFFERS minus the base buffer of the human save that produced this commit.
+The saving buffer already holds the exact installed bytes: erasing and
+reinserting them would destroy its markers, folding and undo list, and
+`basic-save-buffer' runs `after-save-hook' in it once after the handler
+returns.  Only already visiting clean buffers are refreshed."
+  (let ((source (brain--human-source-base spec)))
+    (if source
+        (seq-remove (lambda (buffer) (eq (brain--buffer-base buffer) source))
+                    buffers)
+      buffers)))
+
 (defun brain--buffer-dirty-p (buffer)
   (and (buffer-live-p buffer)
        (with-current-buffer buffer (buffer-modified-p))))
@@ -742,6 +766,11 @@ and its visited modtime matches the file just installed."
       (goto-char (min point (point-max)))
       (set-buffer-modified-p nil)
       (set-visited-file-modtime)
+      ;; The cache never saw these edits: modification hooks are inhibited, so
+      ;; it must be rebuilt instead of erroring on its next access (which would
+      ;; pop a *Warnings* window from the daemon).  This is not a parser run.
+      (when (and (derived-mode-p 'org-mode) (fboundp 'org-element-cache-reset))
+        (org-element-cache-reset nil t))
       (dolist (state states)
         (let ((window (nth 0 state)))
           (when (window-live-p window)
@@ -910,6 +939,38 @@ deferred with attention instead of being dropped."
      (brain--log "projection failed for %s: %s" file-id (car err))
      nil)))
 
+(defun brain--projection-with-status (bytes file-id revision)
+  "Return (semantic . PLIST) or (deferred . REASON) for BYTES."
+  (condition-case err
+      (let ((semantic (brain--projection-parse bytes file-id revision)))
+        (cond
+         ((null semantic) (cons 'deferred "projection_empty"))
+         ((> (length (encode-coding-string (brain--json-encode semantic) 'utf-8))
+             brain-projection-max-bytes)
+          (cons 'deferred "projection_overflow"))
+         (t (cons 'semantic semantic))))
+    (error (cons 'deferred (format "projection_failed:%s" (car err))))))
+
+(defun brain--defer-projection (file-id reason operation-id revision)
+  "Record that FILE-ID's semantic projection is deferred, visibly and durably.
+The committed bytes stay committed; only the derived manifest waits, so a hot
+task is never lost and never reported as a conflict."
+  (puthash file-id (list :reason reason :operation-id operation-id
+                         :revision revision)
+           brain--deferred)
+  (brain--journal-append "attention" :file_id file-id :reason reason
+                         :operation_id operation-id :revision revision)
+  reason)
+
+(defun brain--projection-for (bytes file-id revision operation-id)
+  "Return the bounded projection for BYTES, recording a deferral when needed."
+  (let* ((probe (brain--projection-with-status bytes file-id revision))
+         (semantic (and (eq (car probe) 'semantic) (cdr probe))))
+    (if semantic
+        (progn (remhash file-id brain--deferred) semantic)
+      (brain--defer-projection file-id (cdr probe) operation-id revision)
+      nil)))
+
 ;;; ---------------------------------------------------------------------------
 ;;; The commit primitive
 ;;; ---------------------------------------------------------------------------
@@ -998,8 +1059,10 @@ unavailable or attention, durably recorded before it is reported."
                      :reason (or (plist-get resolution :reason) "unsafe_path")))
      ((equal disk digest)
       ;; The requested bytes are already the canonical bytes.
-      (brain--result "committed" file-id :current-revision head :new-revision head
-                     :reason "already_current"))
+      (if human
+          (brain--settle-already-current spec)
+        (brain--result "committed" file-id :current-revision head :new-revision head
+                       :reason "already_current")))
      ((and marker (not ignore-marker))
       (brain--result "dirty" file-id :current-revision head :reason marker))
      ((and conflict (not ignore-marker))
@@ -1008,6 +1071,10 @@ unavailable or attention, durably recorded before it is reported."
      ((and human (not (brain--source-disk-current-p spec path)))
       (brain--result "attention" file-id :current-revision head
                      :reason "disk_changed"))
+     ((and (plist-get spec :require-expected) (null expected) head)
+      ;; Null means create-only: it never overwrites an existing head.
+      (brain--result "stale" file-id :current-revision head
+                     :reason "expected_required"))
      ((and expected (not (brain--rev-equal expected head)))
       (brain--result "stale" file-id :current-revision head :reason "stale_base"))
      ((and head (not (equal (brain--rev-sha head) disk)))
@@ -1026,6 +1093,32 @@ unavailable or attention, durably recorded before it is reported."
                        :reason "baseline_enrolled")))
      (t
       (brain--install spec path bytes digest head buffers origin)))))
+
+(defun brain--settle-already-current (spec)
+  "Finish a human save whose exact bytes are already the canonical bytes.
+Nothing is installed and no revision is invented, but the save clears only the
+dirty generation it actually saved: without that record a restart brings the
+lease back and blocks the file for good."
+  (let* ((file-id (plist-get spec :file-id))
+         (lease (gethash file-id brain--dirty))
+         (generation (plist-get lease :generation))
+         (source (brain--human-source-base spec))
+         (head (gethash file-id brain--heads)))
+    (when source
+      (with-current-buffer source
+        (set-buffer-modified-p nil)
+        (set-visited-file-modtime)))
+    (when lease
+      (brain--clear-lease file-id generation spec)
+      (brain--emit-event
+       "brain.file.clean"
+       (list (cons "file_id" file-id)
+             (cons "revision" (brain--rev->json head))
+             (cons "dirty_generation" generation)
+             (cons "operation_id" (plist-get spec :operation-id))
+             (cons "client_epoch" (or brain--client-epoch :null)))))
+    (brain--result "committed" file-id :current-revision head :new-revision head
+                   :reason "already_current")))
 
 (defun brain--conflicting-dirty-buffer (buffers source)
   "Return a modified buffer of this identity that is not SOURCE's own text.
@@ -1103,7 +1196,7 @@ an independent second buffer visiting the same file is."
                                 :reason "fsync_failed"))
              (brain--clear-lease file-id generation spec)
              (brain--emit-commit-events spec file-id head new origin generation)
-             (brain--run-post-commit-hooks buffers)
+             (brain--run-post-commit-hooks (brain--refreshable-buffers spec buffers))
              result))))
       (_ result))))
 
@@ -1141,7 +1234,9 @@ an independent second buffer visiting the same file is."
          (operation-id (plist-get spec :operation-id))
          (seq (if head (1+ (brain--rev-seq head)) 0))
          (revision (brain--rev seq digest))
-         (buffers (brain--visiting-buffers file-id)))
+         (buffers (brain--visiting-buffers file-id))
+         (refresh (brain--refreshable-buffers spec buffers))
+         (source (brain--human-source-base spec)))
     ;; ---- no yield from here to the refreshed buffers ----
     (brain--journal-append-nofsync
      "intent" :file_id file-id :operation_id operation-id
@@ -1151,10 +1246,14 @@ an independent second buffer visiting the same file is."
      :object_hash digest :byte_length (length bytes) :phase "intent")
     (brain--publish-object bytes digest)
     (brain--atomic-replace path bytes)
-    (brain--refresh-all buffers text)
+    (brain--refresh-all refresh text)
+    ;; The saving buffer already holds these exact bytes: it is finished, never
+    ;; rewritten, so its markers, folding, narrowing and undo list survive.
+    (when source
+      (with-current-buffer source
+        (set-buffer-modified-p nil)
+        (set-visited-file-modtime)))
     (puthash file-id revision brain--heads)
-    (when (gethash file-id brain--dirty)
-      (remhash file-id brain--dirty))
     (brain--result
      "committed" file-id
      :installed t
@@ -1188,7 +1287,10 @@ invented; the journal record is what recovery replays."
                              :operation_id (plist-get spec :operation-id)))))
 
 (defun brain--run-post-commit-hooks (buffers)
-  "Refresh derived indexes (org-roam) for already visiting buffers, after commit."
+  "Refresh derived indexes (org-roam) for already visiting buffers, after commit.
+BUFFERS excludes a human save's own buffer (see `brain--refreshable-buffers'):
+`basic-save-buffer' runs `after-save-hook' in it exactly once after the
+write-contents handler returns, so the hook must not run twice."
   (dolist (buffer (brain--base-buffers buffers))
     (when (buffer-live-p buffer)
       (condition-case err
@@ -1229,13 +1331,23 @@ invented; the journal record is what recovery replays."
                 (list (format "brain: refusing to save %s (%s)" file-id
                               (symbol-name encoded)))))
        (t
-        (let* ((result (brain-commit-file
+        (let* ((operation-id (brain--uuid))
+               (head (gethash file-id brain--heads))
+               (digest (brain--sha256 encoded))
+               (next (if head (1+ (brain--rev-seq head)) 0))
+               ;; Derived from the final encoded candidate bytes, here, before
+               ;; the no-yield section: no Org parser runs inside it.
+               (semantic (brain--projection-for encoded file-id
+                                                (brain--rev next digest)
+                                                operation-id))
+               (result (brain-commit-file
                         (list :file-id file-id
                               :origin "human"
                               :bytes encoded
-                              :expected-revision (gethash file-id brain--heads)
-                              :operation-id (brain--uuid)
+                              :expected-revision head
+                              :operation-id operation-id
                               :buffer buffer
+                              :semantic semantic
                               :tick (buffer-chars-modified-tick))))
                (status (plist-get result :status)))
           (unless (equal status "committed")
@@ -1599,8 +1711,9 @@ function is set to nil by Emacs and would then no longer run at all."
                        (brain--result "attention" file-id :reason "invalid_utf8")
                      (let* ((head (gethash file-id brain--heads))
                             (next (if head (1+ (brain--rev-seq head)) 0))
-                            (semantic (brain--projection bytes file-id
-                                                         (brain--rev next digest))))
+                            (semantic (brain--projection-for bytes file-id
+                                                             (brain--rev next digest)
+                                                             attempt-id)))
                        (brain-commit-file
                         (list :file-id file-id :origin "librarian" :bytes bytes
                               :object-hash digest :expected-revision expected
@@ -1894,6 +2007,7 @@ reverted and no seq is guessed."
         :files (hash-table-count brain--heads)
         :dirty (hash-table-count brain--dirty)
         :attention (hash-table-count brain--attention)
+        :deferred (hash-table-count brain--deferred)
         :unacked (- brain--wire-seq brain--acked-seq)
         :state (cond
                 ((and file-id (gethash file-id brain--attention)) 'attention)
@@ -1909,7 +2023,12 @@ reverted and no seq is guessed."
                            files)
         :file file-id
         :file-revision (and file-id (gethash file-id brain--heads))
-        :file-dirty (and file-id (gethash file-id brain--dirty))))
+        :file-dirty (and file-id (gethash file-id brain--dirty))
+        :deferred-files (let (files)
+                          (maphash (lambda (key _value) (push key files))
+                                   brain--deferred)
+                          files)
+        :file-deferred (and file-id (gethash file-id brain--deferred))))
 
 (defun brain-mode-line-string ()
   "Quiet mode-line indicator.  Empty unless something needs attention."
@@ -1925,7 +2044,11 @@ reverted and no seq is guessed."
 ;;; ---------------------------------------------------------------------------
 
 (defun brain--setup-buffer ()
-  "Install the managed buffer's save path and dirty instrumentation."
+  "Install the managed buffer's save path and dirty instrumentation.
+Runs from `find-file-hook' and again from `after-change-major-mode-hook': a
+mode restart (`org-mode-restart', `M-x org-mode', `normal-mode' on revert)
+kills the buffer-local hooks, and losing them would refuse the user's next
+save and stop leasing the edit."
   (when (and brain--enabled (brain--managed-buffer-p (current-buffer)))
     (let ((file-id (brain--buffer-file-id (current-buffer))))
       (ignore-errors (brain--register-identity file-id))
@@ -1967,6 +2090,7 @@ reverted and no seq is guessed."
     (setq brain--enabled t)
     (brain--install-guards)
     (add-hook 'find-file-hook #'brain--setup-buffer t)
+    (add-hook 'after-change-major-mode-hook #'brain--setup-buffer)
     (dolist (buffer (buffer-list))
       (with-current-buffer buffer (brain--setup-buffer)))
     (brain-recover)
@@ -1982,6 +2106,7 @@ reverted and no seq is guessed."
   (setq brain--enabled nil)
   (brain--remove-guards)
   (remove-hook 'find-file-hook #'brain--setup-buffer)
+  (remove-hook 'after-change-major-mode-hook #'brain--setup-buffer)
   (dolist (buffer (buffer-list)) (brain--disable-buffer-hooks buffer))
   (when (and brain--ipc (process-live-p brain--ipc))
     (ignore-errors (delete-process brain--ipc)))

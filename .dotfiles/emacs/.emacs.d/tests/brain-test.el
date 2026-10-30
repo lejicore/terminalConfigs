@@ -36,6 +36,7 @@
         brain--dirty (make-hash-table :test #'equal)
         brain--generations (make-hash-table :test #'equal)
         brain--attention (make-hash-table :test #'equal)
+        brain--deferred (make-hash-table :test #'equal)
         brain--identities (make-hash-table :test #'equal)
         brain--results (make-hash-table :test #'equal)
         brain--outbox nil
@@ -224,6 +225,121 @@
       (should (member "committed" (brain-test--journal-kinds)))
       ;; The immutable object was published under the Mac producer namespace.
       (should (file-exists-p (brain--object-path "mac" (brain--sha256-file path)))))))
+
+(ert-deftest brain-test-human-save-journals-its-clean-generation ()
+  (brain-test--with-environment
+    (let* ((file-id "org-files/CleanSave.org")
+           (path (brain--file-path file-id)))
+      (brain-test--write path "* A\n")
+      (let ((buffer (brain-test--visit file-id)))
+        (with-current-buffer buffer
+          (goto-char (point-max))
+          (insert "* edited\n")
+          (save-buffer)
+          (should-not (buffer-modified-p))
+          ;; The next save must not prompt "file changed on disk".
+          (should (verify-visited-file-modtime buffer))))
+      ;; The save journals the exact generation and revision it cleared.
+      (should-not (gethash file-id brain--dirty))
+      (let ((clean (car (brain--journal-records "clean"))))
+        (should clean)
+        (should (equal (plist-get clean :revision) (gethash file-id brain--heads)))
+        (should (= (plist-get clean :dirty_generation) 1)))
+      ;; A restart replays that clean record, so the generation that was
+      ;; already saved never blocks a later remote install.
+      (brain-test--restart)
+      (should-not (gethash file-id brain--dirty))
+      (should (equal (plist-get (brain-commit-file
+                                 (brain-test--install-spec
+                                  file-id (gethash file-id brain--heads)
+                                  "* A\n* edited\n* remote\n"))
+                                :status)
+                     "committed"))
+      (should (equal (brain-test--read-bytes path)
+                     (brain-test--bytes "* A\n* edited\n* remote\n"))))))
+
+(ert-deftest brain-test-save-of-identical-bytes-clears-its-lease ()
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Same.org")
+           (path (brain--file-path file-id))
+           (text "* A\n"))
+      (brain-test--enroll file-id text)
+      (let ((buffer (brain-test--visit file-id)))
+        (with-current-buffer buffer
+          (goto-char (point-max))
+          (insert "x")
+          (delete-char -1)
+          (should (buffer-modified-p))
+          (should (gethash file-id brain--dirty))
+          ;; The buffer text again equals the disk bytes: nothing new is
+          ;; installed, but the save still clears the generation it saved.
+          (save-buffer)
+          (should-not (buffer-modified-p))))
+      (should-not (gethash file-id brain--dirty))
+      (should (member "clean" (brain-test--journal-kinds)))
+      (should (equal (alist-get "kind" (plist-get (brain-test--last-event) :payload)
+                                nil nil #'equal)
+                     "brain.file.clean"))
+      (should (equal (brain-test--read-bytes path) (brain-test--bytes text))))))
+
+(ert-deftest brain-test-human-save-keeps-markers-folding-and-tick ()
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Marks.org")
+           (path (brain--file-path file-id))
+           (text "* One\nbody one\n* Two\nbody two\n* Three\nbody three\n"))
+      (brain-test--write path text)
+      (let ((buffer (brain-test--visit file-id)) marker position folded tick)
+        (with-current-buffer buffer
+          (org-mode)
+          ;; A mode change must not lose the save path (see the restart test).
+          (should (memq #'brain-write-contents-handler write-contents-functions))
+          (goto-char (point-min))
+          (search-forward "* Three")
+          (setq position (line-beginning-position))
+          (setq marker (copy-marker position))
+          (goto-char (point-min))
+          (org-fold-hide-subtree)
+          (setq folded (org-fold-folded-p (save-excursion (forward-line 1) (point))))
+          (goto-char (point-max))
+          (insert "* Four\n")
+          (setq tick (buffer-chars-modified-tick))
+          (save-buffer)
+          ;; An ordinary save never erases and reinserts the saving buffer.
+          (should (= (buffer-chars-modified-tick) tick))
+          (should (equal (marker-position marker) position))
+          (should (eq (org-fold-folded-p (save-excursion (goto-char (point-min))
+                                                         (forward-line 1)
+                                                         (point)))
+                      folded))
+          (should-not (buffer-modified-p)))
+        (should (equal (brain-test--read-bytes path)
+                       (brain-test--bytes (concat text "* Four\n"))))))))
+
+(ert-deftest brain-test-human-save-carries-a-bounded-projection ()
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Todo.org")
+           (path (brain--file-path file-id))
+           (text (concat "* TODO task :kanban:ready:\n:PROPERTIES:\n"
+                         ":ID: x-1\n:PROJECT: p\n:END:\n")))
+      (brain-test--write path text)
+      (let ((buffer (brain-test--visit file-id)))
+        (with-current-buffer buffer
+          (goto-char (point-max))
+          (insert "body\n")
+          (save-buffer)))
+      (let* ((event (plist-get (brain-test--last-event) :payload))
+             (payload (alist-get "payload" event nil nil #'equal))
+             (semantic (alist-get "semantic" payload nil nil #'equal))
+             (headings (cdr (alist-get "headings" semantic nil nil #'equal))))
+        (should (equal (alist-get "kind" event nil nil #'equal) "brain.file.saved"))
+        (should semantic)
+        (should (= (length headings) 1))
+        (should (equal (alist-get "todo" (nth 0 headings) nil nil #'equal) "TODO"))
+        (should (equal (alist-get "id" (nth 0 headings) nil nil #'equal) "x-1"))
+        (should (equal (alist-get "project" (nth 0 headings) nil nil #'equal) "p"))
+        (should (<= (length (encode-coding-string (brain--json-encode semantic)
+                                                  'utf-8))
+                    brain-projection-max-bytes))))))
 
 (ert-deftest brain-test-text-is-not-rewritten-by-guards ()
   (brain-test--with-environment
@@ -523,6 +639,91 @@
         (should (equal (plist-get result :reason) "stale_base")))
       (should (equal (brain-test--read-bytes (brain--file-path file-id))
                      (brain-test--bytes "* A\n* two\n"))))))
+
+(ert-deftest brain-test-null-expected-does-not-overwrite-an-enrolled-file ()
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Null.org")
+           (path (brain--file-path file-id)))
+      (brain-test--enroll file-id "* human content\n")
+      (let ((result (brain-commit-file
+                     (brain-test--install-spec file-id nil
+                                               "* remote replaced everything\n"))))
+        (should (equal (plist-get result :status) "stale"))
+        (should (equal (plist-get result :reason) "expected_required")))
+      ;; No overwrite, no new revision.
+      (should (equal (brain-test--read-bytes path)
+                     (brain-test--bytes "* human content\n")))
+      (should (= (plist-get (gethash file-id brain--heads) :seq) 0))
+      ;; Null expected still creates a genuinely absent file.
+      (let ((created (brain-commit-file
+                      (brain-test--install-spec "org-files/Fresh.org" nil
+                                                "* created\n"))))
+        (should (equal (plist-get created :status) "committed"))
+        (should (equal (brain-test--read-bytes (brain--file-path "org-files/Fresh.org"))
+                       (brain-test--bytes "* created\n")))))))
+
+(ert-deftest brain-test-refresh-invalidates-the-org-element-cache ()
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Elements.org")
+           (text "* One\nbody\n* Two\nbody two\n")
+           (base (brain-test--enroll file-id text))
+           (buffer (brain-test--visit file-id)))
+      (with-current-buffer buffer
+        (org-mode)
+        (goto-char (point-max))
+        (org-element-at-point))
+      (should (equal (plist-get (brain-commit-file
+                                 (brain-test--install-spec
+                                  file-id base
+                                  "* Zero\nnew\n* One\nbody\n* Two\nbody two\n"))
+                                :status)
+                     "committed"))
+      ;; The parser is asked about the refreshed text, not the old one, and the
+      ;; mismatch must not surface as a *Warnings* buffer in the daemon.
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (forward-line -1)
+        (let ((element (org-element-at-point)))
+          (should (eq (org-element-type element) 'paragraph))
+          (should (= (org-element-property :begin element) (line-beginning-position)))))
+      (should-not (get-buffer "*Warnings*")))))
+
+(ert-deftest brain-test-projection-overflow-is-deferred-and-visible ()
+  (brain-test--with-environment
+    (let* ((brain-projection-max-bytes 200)
+           (file-id "org-files/Big.org")
+           (text (mapconcat (lambda (index)
+                              (format "* Heading %d with a long title %s\n:PROPERTIES:\n:ID: id-%d\n:END:\n"
+                                      index (make-string 40 ?x) index))
+                            (number-sequence 1 20) "\n"))
+           (bytes (brain-test--bytes text))
+           (base (brain-test--enroll file-id "* small\n"))
+           (attempt (brain--uuid))
+           (payload (list (cons "v" 1)
+                          (cons "type" "brain.install.request")
+                          (cons "brain_id" brain-id)
+                          (cons "attempt_id" attempt)
+                          (cons "mutation_id" (brain--uuid))
+                          (cons "file_id" file-id)
+                          (cons "expected_revision" (brain--rev->json base))
+                          (cons "object_hash" (brain--sha256 bytes))
+                          (cons "byte_length" (length bytes)))))
+      (brain--publish-object bytes (alist-get "object_hash" payload nil nil #'equal)
+                             "hermes")
+      (brain--handle-install-request payload)
+      (let ((result (gethash attempt brain--results)))
+        ;; The bytes are committed; only the derived manifest is deferred.
+        (should (equal (plist-get result :status) "committed"))
+        (should-not (plist-get result :semantic)))
+      (should (gethash file-id brain--deferred))
+      (should (equal (plist-get (gethash file-id brain--deferred) :reason)
+                     "projection_overflow"))
+      (should (= (plist-get (brain-status) :deferred) 1))
+      (should (equal (plist-get (brain-status file-id) :file-deferred)
+                     (gethash file-id brain--deferred)))
+      (should (member "attention" (brain-test--journal-kinds)))
+      (should (equal (brain-test--read-bytes (brain--file-path file-id))
+                     bytes)))))
 
 (ert-deftest brain-test-duplicate-attempt-returns-same-result ()
   (brain-test--with-environment
@@ -996,6 +1197,45 @@
       (should (eq (plist-get (brain-status) :state) 'attention))
       (should (equal (brain-mode-line-string) " Brain:attn")))))
 
+(ert-deftest brain-test-major-mode-restart-keeps-save-path-and-lease ()
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Restart.org")
+           (path (brain--file-path file-id))
+           (text "#+TODO: TODO DONE\n* A\n"))
+      (brain-test--write path text)
+      (let ((buffer (brain-test--visit file-id)))
+        (with-current-buffer buffer
+          (org-mode)
+          ;; C-c C-c on a #+ line restarts the major mode, which kills the
+          ;; buffer-local hooks; the save path and the lease must survive it.
+          (org-mode-restart)
+          (should (memq #'brain-write-contents-handler write-contents-functions))
+          (should (memq #'brain--before-change-guard before-change-functions))
+          (goto-char (point-max))
+          (insert "* B\n")
+          (should (gethash file-id brain--dirty))
+          (save-buffer)
+          (should-not (buffer-modified-p)))
+        (should (equal (brain-test--read-bytes path)
+                       (brain-test--bytes "#+TODO: TODO DONE\n* A\n* B\n")))))))
+
+(ert-deftest brain-test-human-save-runs-after-save-hook-once ()
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Once.org")
+           (path (brain--file-path file-id))
+           (count 0))
+      (brain-test--write path "* A\n")
+      (let ((buffer (brain-test--visit file-id)))
+        (with-current-buffer buffer
+          (add-hook 'after-save-hook (lambda () (setq count (1+ count))) nil t)
+          (goto-char (point-max))
+          (insert "* B\n")
+          (save-buffer)))
+      ;; The handler commits; `basic-save-buffer' runs `after-save-hook' once.
+      (should (= count 1))
+      (should (equal (brain-test--read-bytes path)
+                     (brain-test--bytes "* A\n* B\n"))))))
+
 (ert-deftest brain-test-after-save-hook-runs-once-and-not-inside-the-section ()
   (brain-test--with-environment
     (let* ((file-id "org-files/Hooks.org")
@@ -1011,7 +1251,7 @@
       ;; The derived-index hook ran once, after the commit; no modification hook
       ;; fired while the text was being replaced.
       (should (= save-count 1))
-      (should (= change-count 0))))
+      (should (= change-count 0)))))
 
 (ert-deftest brain-test-hook-error-does-not-lose-instrumentation ()
   (brain-test--with-environment
@@ -1043,7 +1283,7 @@
       ;; Guards are inert while disabled: the file can be written directly.
       (write-region "* direct\n" nil (brain--file-path file-id))
       (should (equal (brain-test--read-bytes (brain--file-path file-id))
-                     (brain-test--bytes "* direct\n")))))))
+                     (brain-test--bytes "* direct\n"))))))
 
 (provide 'brain-test)
 ;;; brain-test.el ends here
