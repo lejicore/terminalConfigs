@@ -65,13 +65,26 @@
         brain--ipc nil
         brain--commit-count 0))
 
+(defvar brain-test--org-roam-first nil
+  "Non-nil when the environment must enable autosync before `brain-enable'.
+That is the order the live daemon has: `Emacs.org' turns on
+`org-roam-db-autosync-mode' before the Brain module is loaded, so org-roam's
+`rename-file' advice is installed first and brain's guard wraps around it.
+Only `brain-test--with-live-advice-order' binds this.")
+
 (defmacro brain-test--with-environment (&rest body)
-  "Run BODY with real temporary managed roots, state dir and a live module."
+  "Run BODY with real temporary managed roots, state dir and a live module.
+See `brain-test--with-live-advice-order' for the live advice order."
   (declare (indent 0) (debug t))
   `(let* ((brain-test--root (make-temp-file "brain-test-" t))
           (brain-test--state (expand-file-name "state/" brain-test--root))
           (org-files (expand-file-name "org-files/" brain-test--root))
           (org-roam (expand-file-name "org-roam/" brain-test--root))
+          ;; Only the org-roam tests look at these, but they must be bound for
+          ;; the whole environment: the live order enables autosync before
+          ;; `brain-enable', and the mode's hooks read them later, at save time.
+          (org-roam-directory (file-name-as-directory org-roam))
+          (org-roam-db-location (expand-file-name "roam.db" brain-test--root))
           (brain-id "11111111-1111-4111-8111-111111111111")
           (brain-writer-id "22222222-2222-4222-8222-222222222222")
           (brain-managed-roots (list (cons "org-files" org-files)
@@ -85,9 +98,11 @@
      (make-directory org-roam t)
      (unwind-protect
          (progn
+           (when brain-test--org-roam-first (brain-test--org-roam-enable))
            (brain-enable)
            ,@body)
        (brain-disable)
+       (when brain-test--org-roam-first (brain-test--org-roam-disable))
        (dolist (buffer (buffer-list))
          (let ((name (buffer-file-name buffer)))
            (when (or (string-prefix-p "brain-test" (buffer-name buffer))
@@ -181,20 +196,52 @@ bytes."
     (setq brain-test--org-roam-loaded (and (featurep 'org-roam-db) t)))
   brain-test--org-roam-loaded)
 
+(defun brain-test--org-roam-enable ()
+  "Enable the real `org-roam-db-autosync-mode' over the environment's roam root.
+`org-roam-directory' and `org-roam-db-location' are bound by
+`brain-test--with-environment'; the mode reads them at enable time and its
+hooks read them again at save time.  Skipped only when org-roam is genuinely
+absent from this Emacs."
+  (unless (brain-test--load-org-roam)
+    (ert-skip "org-roam is not installed in this Emacs"))
+  (org-roam-db-autosync-mode 1))
+
+(defun brain-test--org-roam-disable ()
+  (when brain-test--org-roam-loaded
+    (org-roam-db-autosync-mode -1)))
+
+(defun brain-test--rename-advice-layers ()
+  "Return the advice layers on `rename-file', outermost first.
+The order is a property of load order, not of this suite: it is what decides
+whether peeling a single layer of advice is enough."
+  (let ((function (symbol-function 'rename-file))
+        (layers nil))
+    (while (advice--p function)
+      (push (advice--car function) layers)
+      (setq function (advice--cdr function)))
+    (nreverse layers)))
+
 (defmacro brain-test--with-org-roam-autosync (&rest body)
   "Run BODY with `org-roam-db-autosync-mode' live over the managed roam root.
-Skipped only when org-roam is genuinely absent from this Emacs."
+This enables autosync *after* `brain-enable', so org-roam's `rename-file'
+advice ends up outermost.  `brain-test--with-live-advice-order' is the order
+the live daemon has; both must be covered."
   (declare (indent 0) (debug t))
-  `(if (not (brain-test--load-org-roam))
-       (ert-skip "org-roam is not installed in this Emacs")
-     ;; The variables are bound only after org-roam has defined them as special.
-     (let* ((org-roam-directory
-             (file-name-as-directory (expand-file-name "org-roam/" brain-test--root)))
-            (org-roam-db-location (expand-file-name "roam.db" brain-test--root)))
-       (org-roam-db-autosync-mode 1)
-       (unwind-protect
-           (progn ,@body)
-         (org-roam-db-autosync-mode -1)))))
+  `(progn
+     (brain-test--org-roam-enable)
+     (unwind-protect
+         (progn ,@body)
+       (brain-test--org-roam-disable))))
+
+(defmacro brain-test--with-live-advice-order (&rest body)
+  "Run BODY in the environment and advice order the live daemon has.
+`Emacs.org' enables `org-roam-db-autosync-mode' before the Brain module is
+loaded, so org-roam's `rename-file' advice is added first and brain's own guard
+wraps around it.  A replace that only peels one layer passes the opposite order
+and still fires org-roam's advice here."
+  (declare (indent 0) (debug t))
+  `(let ((brain-test--org-roam-first t))
+     (brain-test--with-environment ,@body)))
 
 (defun brain-test--call-without-questions (function)
   "Call FUNCTION with every question answered \"no\", returning the questions.
@@ -1365,96 +1412,149 @@ Syncthing delivers bytes the store can never see (`objects.exists' false,
 ;;; ---------------------------------------------------------------------------
 ;;; Managed saves under the live org-roam configuration
 ;;; ---------------------------------------------------------------------------
+;;
+;; `Emacs.org' enables `org-roam-db-autosync-mode' before the Brain module is
+;; loaded, so `rename-file' carries org-roam's advice first and brain's own
+;; guard wraps around it.  Both orders are exercised below: a replace that
+;; peels only one advice layer passes the opposite order (autosync enabled
+;; after `brain-enable') and still fires org-roam's advice in the live one.
+
+(defun brain-test--assert-managed-human-save-never-asks ()
+  "Save an existing and a brand-new managed roam file, asserting silence.
+Each save must install exactly the reviewed bytes, leave the buffer clean and
+its visited-file state consistent, and leave the derived index on the bytes
+that are on disk.  Any question reaching `yes-or-no-p' is a failure: in a
+daemon with no user at the keyboard it blocks forever, and answering no becomes
+`attention: commit_error:user-error'.  Runs inside
+`brain-test--with-environment' with `org-roam-db-autosync-mode' live."
+  ;; 1. A file that already exists on disk.
+  (let* ((file-id "org-roam/Existing.org")
+         (path (brain--file-path file-id))
+         (text "* Existing\n")
+         (asked nil))
+    (brain-test--write path text)
+    (let ((buffer (brain-test--visit file-id)))
+      (with-current-buffer buffer
+        ;; The live hook, not a stand-in, must be the one installed.
+        (should (memq #'org-roam-db-autosync--try-update-on-save-h after-save-hook))
+        (goto-char (point-max))
+        (insert "* edited\n")
+        (setq asked (brain-test--call-without-questions #'save-buffer))
+        (should-not asked)
+        (should-not (buffer-modified-p))
+        (should (verify-visited-file-modtime buffer))))
+    (should (equal (brain-test--read-bytes path)
+                   (brain-test--bytes (concat text "* edited\n"))))
+    (should (equal (plist-get (gethash file-id brain--heads) :sha256)
+                   (brain--sha256-file path)))
+    ;; The derived index was refreshed from the installed bytes.
+    (should (equal (brain-test--roam-db-hash path) (org-roam-db--file-hash path))))
+  ;; 2. A brand-new file: the buffer visits a path that does not exist yet.
+  (let* ((file-id "org-roam/Brand.org")
+         (path (brain--file-path file-id))
+         (asked nil))
+    (should-not (file-exists-p path))
+    (let ((buffer (brain-test--visit file-id)))
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (insert "* Brand new\n")
+        (setq asked (brain-test--call-without-questions #'save-buffer))
+        (should-not asked)
+        (should-not (buffer-modified-p))
+        (should (verify-visited-file-modtime buffer))))
+    (should (equal (brain-test--read-bytes path) (brain-test--bytes "* Brand new\n")))
+    (should (file-exists-p (brain--object-path "mac" (brain--sha256-file path))))
+    (should (equal (brain-test--roam-db-hash path) (org-roam-db--file-hash path)))))
+
+(defun brain-test--assert-remote-install-refreshes-index ()
+  "Install a remote commit into a visited roam file and check the index.
+The `rename-file' advice that used to run inside the replace indexed the
+visiting buffer's *pre-install* text (and recorded the new file's hash, so the
+cache looked current while it was stale).  The commit must refresh the index
+itself, from the bytes it installed, and ask no question.  Runs inside
+`brain-test--with-environment' with `org-roam-db-autosync-mode' live."
+  (let* ((file-id "org-roam/Remote.org")
+         (path (brain--file-path file-id))
+         (base nil)
+         (buffer nil)
+         (result nil)
+         (asked nil)
+         (installed "#+title: installed\n* from gateway\n"))
+    (brain-test--write path "#+title: base\n* base\n")
+    (setq base (brain--enroll-baseline file-id path (brain--sha256-file path)))
+    (setq buffer (brain-test--visit file-id))
+    (with-current-buffer buffer
+      (should (memq #'org-roam-db-autosync--try-update-on-save-h after-save-hook))
+      ;; The live daemon already has these bytes indexed.
+      (org-roam-db-update-file path))
+    (should (equal (brain-test--roam-file-title path) "base"))
+    (setq asked
+          (brain-test--call-without-questions
+           (lambda ()
+             (setq result (brain-commit-file
+                           (brain-test--install-spec file-id base installed))))))
+    (should-not asked)
+    (should (equal (plist-get result :status) "committed"))
+    (should (equal (brain-test--read-bytes path) (brain-test--bytes installed)))
+    (with-current-buffer buffer
+      (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                     installed))
+      (should-not (buffer-modified-p))
+      (should (verify-visited-file-modtime buffer)))
+    ;; The index follows the installed bytes, not the replaced ones.
+    (should (equal (brain-test--roam-file-title path) "installed"))
+    (should (equal (brain-test--roam-db-hash path) (org-roam-db--file-hash path)))))
 
 (ert-deftest brain-test-human-save-under-org-roam-autosync-never-asks ()
-  "A managed save must never reach `basic-save-buffer's \"Save anyway?\" prompt.
+  "A managed save must never reach the prompt `basic-save-buffer' asks.
 `org-roam-db-autosync-mode' advises `rename-file'; the advice re-saves the
 buffer visiting the replaced path, and while brain is replacing the file that
-nested save used to ask \"<file> has changed since visited or saved.  Save
-anyway?\" -- which blocks a daemon with no user at the keyboard, and answering
-\"no\" turned every save into `attention: commit_error:user-error' (observed
-live on the Mac, 2026-10-31).  A new file and an existing file must both save
-through `brain-write-contents-handler' with no question at all."
+nested save used to ask whether to save a file that changed since it was
+visited -- which blocks a daemon with no user at the keyboard, and answering
+no turned every save into `attention: commit_error:user-error' (observed live
+on the Mac, 2026-10-31).  A new file and an existing file must both save
+through `brain-write-contents-handler' with no question at all.
+
+This is the order a test gets by enabling autosync after `brain-enable':
+org-roam's advice is outermost.  The live order is covered by
+`brain-test-human-save-under-live-advice-order-never-asks'."
   (brain-test--with-environment
     (brain-test--with-org-roam-autosync
-      ;; 1. A file that already exists on disk.
-      (let* ((file-id "org-roam/Existing.org")
-             (path (brain--file-path file-id))
-             (text "* Existing\n")
-             (asked nil))
-        (brain-test--write path text)
-        (let ((buffer (brain-test--visit file-id)))
-          (with-current-buffer buffer
-            ;; The live hook, not a stand-in, must be the one installed.
-            (should (memq #'org-roam-db-autosync--try-update-on-save-h after-save-hook))
-            (goto-char (point-max))
-            (insert "* edited\n")
-            (setq asked (brain-test--call-without-questions #'save-buffer))
-            (should-not asked)
-            (should-not (buffer-modified-p))
-            (should (verify-visited-file-modtime buffer))))
-        (should (equal (brain-test--read-bytes path)
-                       (brain-test--bytes (concat text "* edited\n"))))
-        (should (equal (plist-get (gethash file-id brain--heads) :sha256)
-                       (brain--sha256-file path)))
-        ;; The derived index was refreshed from the installed bytes.
-        (should (equal (brain-test--roam-db-hash path) (org-roam-db--file-hash path))))
-      ;; 2. A brand-new file: the buffer visits a path that does not exist yet.
-      (let* ((file-id "org-roam/Brand.org")
-             (path (brain--file-path file-id))
-             (asked nil))
-        (should-not (file-exists-p path))
-        (let ((buffer (brain-test--visit file-id)))
-          (with-current-buffer buffer
-            (goto-char (point-max))
-            (insert "* Brand new\n")
-            (setq asked (brain-test--call-without-questions #'save-buffer))
-            (should-not asked)
-            (should-not (buffer-modified-p))
-            (should (verify-visited-file-modtime buffer))))
-        (should (equal (brain-test--read-bytes path) (brain-test--bytes "* Brand new\n")))
-        (should (file-exists-p (brain--object-path "mac" (brain--sha256-file path))))
-        (should (equal (brain-test--roam-db-hash path) (org-roam-db--file-hash path)))))))
+      (let ((layers (brain-test--rename-advice-layers)))
+        (should (memq 'org-roam-db-autosync--rename-file-a layers))
+        (should (memq 'brain-guard-rename-file layers))
+        (should (eq (car layers) 'org-roam-db-autosync--rename-file-a)))
+      (brain-test--assert-managed-human-save-never-asks))))
+
+(ert-deftest brain-test-human-save-under-live-advice-order-never-asks ()
+  "The live load order: autosync enabled before `brain-enable'.
+That puts brain's own guard outermost and org-roam's advice underneath it, so
+a replace that peels a single advice layer removes the guard and leaves
+org-roam's advice running inside the no-yield section -- which is exactly the
+live defect.  Both an existing and a brand-new file must save without a
+question."
+  (brain-test--with-live-advice-order
+    (let ((layers (brain-test--rename-advice-layers)))
+      (should (eq (car layers) 'brain-guard-rename-file))
+      (should (memq 'org-roam-db-autosync--rename-file-a layers)))
+    (brain-test--assert-managed-human-save-never-asks)))
 
 (ert-deftest brain-test-remote-install-refreshes-the-derived-index ()
   "A remote install must leave the org-roam cache on the installed bytes.
-The `rename-file' advice that used to run inside the replace indexed the
-visiting buffer's *pre-install* text (and recorded the new file's hash, so the
-cache looked current while it was stale).  The commit refreshes the index
-itself, from the bytes it installed, and never asks a question."
+Covers the order where autosync is enabled after `brain-enable'; the live order
+is covered by
+`brain-test-remote-install-under-live-advice-order-refreshes-the-index'."
   (brain-test--with-environment
     (brain-test--with-org-roam-autosync
-      (let* ((file-id "org-roam/Remote.org")
-             (path (brain--file-path file-id))
-             (base nil)
-             (buffer nil)
-             (result nil)
-             (asked nil)
-             (installed "#+title: installed\n* from gateway\n"))
-        (brain-test--write path "#+title: base\n* base\n")
-        (setq base (brain--enroll-baseline file-id path (brain--sha256-file path)))
-        (setq buffer (brain-test--visit file-id))
-        (with-current-buffer buffer
-          (should (memq #'org-roam-db-autosync--try-update-on-save-h after-save-hook))
-          ;; The live daemon already has these bytes indexed.
-          (org-roam-db-update-file path))
-        (should (equal (brain-test--roam-file-title path) "base"))
-        (setq asked
-              (brain-test--call-without-questions
-               (lambda ()
-                 (setq result (brain-commit-file
-                               (brain-test--install-spec file-id base installed))))))
-        (should-not asked)
-        (should (equal (plist-get result :status) "committed"))
-        (should (equal (brain-test--read-bytes path) (brain-test--bytes installed)))
-        (with-current-buffer buffer
-          (should (equal (buffer-substring-no-properties (point-min) (point-max))
-                         installed))
-          (should-not (buffer-modified-p))
-          (should (verify-visited-file-modtime buffer)))
-        ;; The index follows the installed bytes, not the replaced ones.
-        (should (equal (brain-test--roam-file-title path) "installed"))
-        (should (equal (brain-test--roam-db-hash path) (org-roam-db--file-hash path)))))))
+      (should (memq 'org-roam-db-autosync--rename-file-a
+                    (brain-test--rename-advice-layers)))
+      (brain-test--assert-remote-install-refreshes-index))))
+
+(ert-deftest brain-test-remote-install-under-live-advice-order-refreshes-the-index ()
+  "The same install under the live advice order: brain's guard outermost."
+  (brain-test--with-live-advice-order
+    (should (eq (car (brain-test--rename-advice-layers)) 'brain-guard-rename-file))
+    (brain-test--assert-remote-install-refreshes-index)))
 
 (ert-deftest brain-test-hook-error-does-not-lose-instrumentation ()
   (brain-test--with-environment

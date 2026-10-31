@@ -653,11 +653,15 @@ daemon with no user at the keyboard forever (and \"no\" becomes `user-error',
 i.e. `commit_error:user-error').  The cache that advice maintains is refreshed
 by the commit itself: `brain--run-post-commit-hooks' runs `after-save-hook' for
 every already visiting buffer, and a human save's own buffer gets it from
-`basic-save-buffer' once the handler returns."
-  (let ((function (symbol-function #'rename-file)))
-    (if (advice--p function)
-        (funcall (advice--cdr function) from to ok-if-exists)
-      (rename-file from to ok-if-exists))))
+`basic-save-buffer' once the handler returns.
+
+Every advice layer is peeled, not just one: the order of advice on
+`rename-file' depends on load order.  `Emacs.org' enables
+`org-roam-db-autosync-mode' before `brain-enable', so there the outermost layer
+is brain's own guard and org-roam's advice sits underneath it; tests that
+enable them the other way round see the opposite order.  `advice--cd*r' walks
+to the primitive whatever the order and however many layers there are."
+  (funcall (advice--cd*r (symbol-function #'rename-file)) from to ok-if-exists))
 
 (defun brain--atomic-replace (path bytes)
   "Replace PATH with BYTES via a same-directory rename, preserving its mode."
