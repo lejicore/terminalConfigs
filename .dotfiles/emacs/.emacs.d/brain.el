@@ -14,7 +14,7 @@
 ;;     semantic projection from those exact bytes in a temporary non-visiting
 ;;     buffer, then a synchronous non-yielding check-to-install section;
 ;;   * the node-local IPC client (length-prefixed JSON frames to
-;;     `ipc/node.sock'), a durable outbox and the idle dispatcher;
+;;     `ipc/node.sock'), a durable outbox and the bounded dispatcher;
 ;;   * snapshots and the paged inventory;
 ;;   * dirty-generation leases, recovery markers and the alternate route guards
 ;;     (write-region / rename / delete / save-as / Babel / auto-revert);
@@ -118,8 +118,14 @@ Nil means `transport/' beneath `brain-state-directory'."
   "When non-nil, durably flush journal/object/canonical paths with `sync'."
   :type 'boolean)
 
-(defcustom brain-dispatch-idle 0.25
-  "Idle delay before queued install requests are executed."
+(defcustom brain-dispatch-interval 0.25
+  "Seconds between inbound dispatcher runs.
+
+The dispatcher is a REGULAR timer, not an idle one: a repeating idle timer runs
+at most once per idle period (Emacs re-arms it inactive and only real input
+makes it eligible again), so an unattended client -- a daemon driven by
+`emacsclient', which is not input -- would never dispatch.  See
+`brain--start-dispatch'."
   :type 'number)
 
 (defcustom brain-reconnect-interval 2.0
@@ -204,8 +210,11 @@ here instead of being dropped: it is durable in the journal, visible in
 (defvar brain--reconnect-timer nil
   "The one bounded reconnect timer, or nil when Brain is disabled.")
 
+(defvar brain--dispatch-timer nil
+  "The one inbound dispatcher timer, or nil when Brain is disabled.")
+
 (defvar brain--inbox nil
-  "Validated inbound frames waiting for the idle dispatcher.")
+  "Validated inbound frames waiting for the dispatcher.")
 
 (defvar brain--outbox nil
   "Durable events not yet acknowledged by the gateway, in wire order.")
@@ -276,6 +285,13 @@ ambiguous, so arrays of objects are marked with a leading `:json-array'."
         (puthash (car cell) (brain--jsonify (cdr cell)) table))
       table))
    ((consp value) (vconcat (mapcar #'brain--jsonify value)))
+   ;; A nil is JSON `null', never `{}'.  `json-serialize' reads a Lisp nil as the empty alist
+   ;; (nil is both the empty list and the empty object), so a nil that reaches it is written
+   ;; `{}'.  That spelling is not the absent value the gateway's contract reads: it refused a
+   ;; journalled, pre-epoch `client_epoch' as `invalid_field: client_epoch must be a UUID string'
+   ;; live on 2026-10-31, because the reloaded frame carries plain nil and the encoder re-spelled
+   ;; it `{}'.  `:null' is the object the serialiser writes as `null'.
+   ((null value) :null)
    (t value)))
 
 (defun brain--json-encode (object)
@@ -1739,6 +1755,35 @@ restart without a manual `brain-disable'/`brain-enable'."
     (setq brain--reconnect-timer nil)))
 
 ;;; ---------------------------------------------------------------------------
+;;; Inbound dispatcher
+;;; ---------------------------------------------------------------------------
+
+(defun brain--start-dispatch ()
+  "Arm the one inbound dispatcher timer, as a REGULAR timer, not an idle one.
+
+`brain--ipc-filter' only enqueues, so the commit path can never run inside a
+process filter.  The trigger that drains the queue must not depend on Emacs
+being idle, though: a repeating idle timer is re-armed with its `triggered'
+flag set (`timer-event-handler' -> `timer-activate-when-idle') and only
+`internal-timer-start-idle', which Emacs calls when a NEW idle period begins
+after real input, clears it again.  One long idle period therefore runs it
+exactly once, which is what the live pair did on 2026-10-31: 105 gateway acks
+and one `brain.install.request' sat in `brain--inbox' with `brain--acked-seq'
+still 0 while four idle dispatcher timers were all marked triggered, because a
+daemon driven by `emacsclient' is never \"touched\".  A regular timer is
+re-armed from wall-clock time, so it fires whether or not anybody is at the
+keyboard."
+  (brain--stop-dispatch)
+  (setq brain--dispatch-timer
+        (run-with-timer brain-dispatch-interval brain-dispatch-interval
+                        #'brain-dispatch-once)))
+
+(defun brain--stop-dispatch ()
+  (when brain--dispatch-timer
+    (cancel-timer brain--dispatch-timer)
+    (setq brain--dispatch-timer nil)))
+
+;;; ---------------------------------------------------------------------------
 ;;; Inbound dispatch
 ;;; ---------------------------------------------------------------------------
 
@@ -2190,7 +2235,7 @@ save and stop leasing the edit."
     (brain--subscribe)
     (brain--announce-ready)
     (brain--start-reconnect)
-    (run-with-idle-timer brain-dispatch-idle t #'brain-dispatch-once)
+    (brain--start-dispatch)
     t)))
 
 (defun brain-disable ()
@@ -2198,6 +2243,7 @@ save and stop leasing the edit."
   (interactive)
   (setq brain--enabled nil)
   (brain--stop-reconnect)
+  (brain--stop-dispatch)
   (brain--remove-guards)
   (remove-hook 'find-file-hook #'brain--setup-buffer)
   (remove-hook 'after-change-major-mode-hook #'brain--setup-buffer)

@@ -128,6 +128,16 @@ See `brain-test--with-live-advice-order' for the live advice order."
 (defun brain-test--bytes (text)
   (encode-coding-string text 'utf-8))
 
+(defun brain-test--frame (object)
+  "The exact node IPC framing of OBJECT: 4-byte big-endian length, then the body."
+  (let* ((body (encode-coding-string (brain--json-encode object) 'utf-8))
+         (length (length body)))
+    (concat (unibyte-string (logand #xff (ash length -24))
+                            (logand #xff (ash length -16))
+                            (logand #xff (ash length -8))
+                            (logand #xff length))
+            body)))
+
 (defun brain-test--install-spec (file-id expected text &rest extra)
   (append (list :file-id file-id
                 :origin "librarian"
@@ -885,6 +895,130 @@ that into an error, so a test can never hang on it."
         (fset 'brain--install-checks original))
       (should (equal (brain-test--read-bytes (brain--file-path file-id))
                      (brain-test--bytes "* A\n"))))))
+
+;;; ---------------------------------------------------------------------------
+;;; The inbound dispatcher, and the wire spelling of an absent value
+;;; ---------------------------------------------------------------------------
+
+(ert-deftest brain-test-dispatcher-is-a-regular-timer-not-an-idle-one ()
+  "The dispatcher must not be an idle timer.
+
+A repeating idle timer runs at most once per idle period: Emacs re-arms it with
+its `triggered' flag set, and only a NEW idle period (which needs real input)
+clears that flag.  Live on 2026-10-31 the daemon had four such timers, all
+marked triggered, with 105 gateway acks plus one install request still queued
+and `brain--acked-seq' at 0 -- `emacsclient' is not input."
+  (brain-test--with-environment
+    (let ((regular (seq-filter (lambda (timer) (eq (timer--function timer)
+                                                   #'brain-dispatch-once))
+                               timer-list))
+          (idle (seq-filter (lambda (timer) (eq (timer--function timer)
+                                                #'brain-dispatch-once))
+                            timer-idle-list)))
+      (should (= (length regular) 1))
+      (should-not idle)
+      (should (timerp brain--dispatch-timer))
+      (should (eq (timer--function brain--dispatch-timer) #'brain-dispatch-once)))
+    (brain-disable)
+    (should-not brain--dispatch-timer)
+    (should-not (seq-filter (lambda (timer) (eq (timer--function timer)
+                                                #'brain-dispatch-once))
+                            timer-list))))
+
+(ert-deftest brain-test-dispatcher-runs-without-user-input ()
+  "A queued ack is consumed by the timer alone, with nobody at the keyboard.
+
+This is the live defect read back as a test: the filter enqueues, and the timer
+must drain the queue while Emacs sits idle.  Batch `sleep-for' runs regular
+timers and never runs idle ones, which is exactly the unattended daemon."
+  (brain-test--with-environment
+    (brain--emit-event "emacs.online" (list (cons "epoch" 1)))
+    (brain--emit-event "emacs.online" (list (cons "epoch" 2)))
+    (should (= brain--wire-seq 2))
+    (should (= (length brain--outbox) 2))
+    (should (= brain--acked-seq 0))
+    (brain--ipc-filter nil (brain-test--frame
+                            (list (cons "v" brain-protocol-version)
+                                  (cons "type" "brain.ack")
+                                  (cons "brain_id" brain-id)
+                                  (cons "peer_id" "hermes")
+                                  (cons "through_seq" 2))))
+    (should (= (length brain--inbox) 1))
+    ;; No user input: only elapsed time.
+    (sleep-for 0.6)
+    (should (null brain--inbox))
+    (should (= brain--acked-seq 2))
+    (should-not brain--outbox)
+    (let ((records (brain--journal-records "ack")))
+      (should (= (length records) 1))
+      (should (= (plist-get (car records) :through_seq) 2)))))
+
+(ert-deftest brain-test-json-encodes-an-absent-value-as-null ()
+  "An absent value is `null', never `{}'.
+
+`json-serialize' reads a Lisp nil as the empty alist, so a nil value used to be
+written `{}'.  The gateway refused exactly that for `client_epoch'
+(`invalid_field: client_epoch must be a UUID string', live 2026-10-31), while a
+JSON null is admissible for every nullable field."
+  (should (equal (brain--json-encode nil) "null"))
+  (should (equal (brain--json-encode (list (cons "client_epoch" nil)))
+                 "{\"client_epoch\":null}"))
+  ;; A JSON array (the `:json-array' marker) keeps its brackets, and a nil element inside it
+  ;; is null too -- `brain--jsonify' recurses through the marker, so vectors never arrive raw.
+  (should (equal (brain--json-encode (list (cons "a" (cons :json-array (list nil)))))
+                 "{\"a\":[null]}"))
+  (should-not (string-match-p "{}" (brain--json-encode
+                                    (list (cons "base_revision" nil)
+                                          (cons "client_epoch" nil)))))
+  ;; `false' and the JSON array marker keep their own spellings.
+  (should (equal (brain--json-encode (list (cons "a" :false))) "{\"a\":false}"))
+  (should (equal (brain--json-encode (list (cons "a" (cons :json-array nil)))) "{\"a\":[]}")))
+
+(ert-deftest brain-test-recovered-event-frame-keeps-the-null-spelling ()
+  "A frame reloaded from the journal goes back on the wire as `null', not `{}'.
+
+The live pre-epoch `brain.file.dirty' frame was journaled with a JSON null
+`client_epoch', reloaded by `brain-recover' with a plain nil, and re-emitted as
+`{}' -- the one frame of fifteen the deployed contract refused.  Reloading must
+not change what the frame says."
+  (brain-test--with-environment
+    (let* ((payload (list (cons "v" brain-protocol-version)
+                          (cons "type" "brain.event")
+                          (cons "brain_id" brain-id)
+                          (cons "peer_id" "mac")
+                          (cons "event_id" "f1a2699f-0b75-441c-9ead-74f25b26f782")
+                          (cons "seq" 1)
+                          (cons "kind" "brain.file.dirty")
+                          (cons "payload"
+                                (list (cons "file_id"
+                                            "org-roam/brain-acceptance-fixture.org")
+                                      (cons "base_revision" :null)
+                                      (cons "dirty_generation" 1)
+                                      (cons "operation_id"
+                                            "b240620c-c281-417d-80af-408e33d2e3c1")
+                                      (cons "client_epoch" :null)))))
+           ;; Exactly the line `brain--journal-write' writes for that event.
+           (line (brain--json-encode
+                  (brain--record->json
+                   (list :local-seq 2 :kind "event" :at 1793417489 :wire_seq 1
+                         :event_kind "brain.file.dirty"
+                         :file_id "org-roam/brain-acceptance-fixture.org"
+                         :payload payload)))))
+      (should (string-match-p "\"client_epoch\":null" line))
+      (should-not (string-match-p "{}" line))
+      (brain-test--write (brain--journal-file) (concat line "\n"))
+      (brain-recover)
+      (should (= brain--wire-seq 1))
+      (should (= (length brain--outbox) 1))
+      (let* ((frame (car brain--outbox))
+             (encoded (brain--json-encode frame))
+             (body (alist-get "payload" frame nil nil #'equal)))
+        (should (equal (alist-get "seq" frame nil nil #'equal) 1))
+        (should-not (alist-get "client_epoch" body nil nil #'equal))
+        (should-not (alist-get "base_revision" body nil nil #'equal))
+        (should (string-match-p "\"client_epoch\":null" encoded))
+        (should (string-match-p "\"base_revision\":null" encoded))
+        (should-not (string-match-p "{}" encoded))))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Recovery: intent phases, autosave markers, restart
