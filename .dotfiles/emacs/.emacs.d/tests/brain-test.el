@@ -1285,5 +1285,197 @@
       (should (equal (brain-test--read-bytes (brain--file-path file-id))
                      (brain-test--bytes "* direct\n"))))))
 
+;;; ---------------------------------------------------------------------------
+;;; Node IPC endpoint, private directories and reconnection (B7 §13.3)
+;;; ---------------------------------------------------------------------------
+
+(defvar brain-test--node nil
+  "The scripted node listener of the current test.")
+
+(defun brain-test--frames-decode (bytes)
+  "Split BYTES into complete frames; return (FRAMES . LEFTOVER-BYTES)."
+  (let ((frames nil) (offset 0) (done nil))
+    (while (not done)
+      (if (< (- (length bytes) offset) 4)
+          (setq done t)
+        (let ((length (logior (ash (aref bytes offset) 24)
+                              (ash (aref bytes (+ offset 1)) 16)
+                              (ash (aref bytes (+ offset 2)) 8)
+                              (aref bytes (+ offset 3)))))
+          (if (< (- (length bytes) offset) (+ 4 length))
+              (setq done t)
+            (let ((body (substring bytes (+ offset 4) (+ offset 4 length))))
+              (push (brain--json-decode (decode-coding-string body 'utf-8)) frames)
+              (setq offset (+ offset 4 length)))))))
+    (cons (nreverse frames) (substring bytes offset))))
+
+(defun brain-test--node-receive (chunk)
+  "Record the frames CHUNK carries: the real client framing, decoded."
+  (setq brain-test--node
+        (plist-put brain-test--node :bytes
+                   (concat (plist-get brain-test--node :bytes) (brain--unibyte chunk))))
+  (let ((decoded (brain-test--frames-decode (plist-get brain-test--node :bytes))))
+    (setq brain-test--node (plist-put brain-test--node :bytes (cdr decoded)))
+    (when (car decoded)
+      (setq brain-test--node
+            (plist-put brain-test--node :frames
+                       (append (plist-get brain-test--node :frames) (car decoded)))))))
+
+(defun brain-test--node-start (path)
+  "A real local listener standing in for the node on PATH."
+  (setq brain-test--node (list :path path :bytes "" :frames nil :process nil))
+  (setq brain-test--node
+        (plist-put brain-test--node :process
+                   (make-network-process
+                    :name "brain-test-node" :server t :family 'local :service path
+                    :coding 'binary :noquery t
+                    :filter (lambda (_process chunk) (brain-test--node-receive chunk)))))
+  (plist-get brain-test--node :process))
+
+(defun brain-test--node-stop ()
+  "Kill the scripted node; its socket file is left behind, like a crashed node."
+  (let ((process (plist-get brain-test--node :process)))
+    (when (processp process)
+      (ignore-errors (delete-process process))))
+  (setq brain-test--node (plist-put brain-test--node :process nil)))
+
+(defun brain-test--node-drop-connection ()
+  "Close the accepted connection, which is what a node restart does to the client's IPC.
+A local server in Emacs keeps each accepted connection as its own process (`NAME <N>')."
+  (dolist (process (process-list))
+    (when (and (process-live-p process)
+               (string-prefix-p "brain-test-node <" (process-name process)))
+      (delete-process process))))
+
+(defun brain-test--node-frames (&optional type)
+  (let ((frames (plist-get brain-test--node :frames)))
+    (if type
+        (seq-filter (lambda (frame)
+                      (equal (alist-get "type" frame nil nil #'equal) type))
+                    frames)
+      frames)))
+
+(defun brain-test--node-forget ()
+  "Drop the frames recorded so far: what the *new* node process received is the subject."
+  (setq brain-test--node (plist-put brain-test--node :frames nil)))
+
+(defun brain-test--wait-for (predicate &optional timeout)
+  "Wait up to TIMEOUT for PREDICATE, pumping process output (batch has no event loop)."
+  (let ((deadline (+ (float-time) (or timeout 2.0))))
+    (while (and (not (funcall predicate)) (< (float-time) deadline))
+      (accept-process-output nil 0.02))
+    (funcall predicate)))
+
+(ert-deftest brain-test-ipc-connect-accepts-a-real-node-socket ()
+  "The node endpoint is a socket even though `file-attributes' says its type is nil.
+The reviewed test required `(eq (car (file-attributes SOCKET 'string)) 'socket)',
+which is nil for a real 0600 socket on this Emacs/OS, so the client logged
+`node endpoint is not a socket' and stayed offline forever."
+  (let* ((root (make-temp-file "brain-ipc-" t))
+         (socket (expand-file-name "ipc/node.sock" root)))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory socket) t)
+          (brain-test--node-start socket)
+          (let ((attributes (file-attributes socket)))
+            ;; The premise of the defect, asserted on the real socket this OS creates.
+            (should (null (car attributes)))
+            (should-not (eq (car attributes) 'socket)))
+          (let ((brain-node-socket socket)
+                (brain--ipc nil)
+                (brain--reconnect-timer nil))
+            (unwind-protect
+                (progn
+                  (should (brain--ipc-connect))
+                  (should (process-live-p brain--ipc))
+                  (should (plist-get (brain-status) :connected))
+                  (should (brain--unix-socket-p (file-attributes socket))))
+              (when (process-live-p brain--ipc) (delete-process brain--ipc))
+              (setq brain--ipc nil)))
+          ;; Both refusals survive: a symlink and a plain file are never endpoints.
+          (let ((link (expand-file-name "ipc/link.sock" root))
+                (plain (expand-file-name "ipc/plain.sock" root)))
+            (make-symbolic-link socket link)
+            (write-region "not a socket" nil plain nil 'no-message)
+            (dolist (candidate (list link plain))
+              (let ((brain-node-socket candidate)
+                    (brain--ipc nil))
+                (should-not (brain--ipc-connect))
+                (should-not brain--ipc)))))
+      (brain-test--node-stop)
+      (delete-directory root t))))
+
+(ert-deftest brain-test-enable-creates-private-brain-directories ()
+  "`brain-enable' creates state/journal/ipc 0700, which the node requires.
+`BrainIPC.prepareEndpoint' refuses an endpoint directory with any group/other
+bit; `make-directory' alone left them 0755 (the process umask)."
+  (brain-test--with-environment
+    (dolist (directory (list (brain--state-dir) (brain--journal-dir) (brain--ipc-dir)))
+      (should (file-directory-p directory))
+      (should (equal (logand (file-modes directory) #o077) 0)))))
+
+(ert-deftest brain-test-ipc-reconnects-and-resubscribes-after-the-node-restarts ()
+  "A node restart reconnects and resubscribes with the same client epoch.
+Without the bounded reconnect the client stayed `:connected nil :state offline'
+until a manual `brain-disable'/`brain-enable'."
+  (let* ((root (make-temp-file "brain-ipc-reconnect-" t))
+         (state (expand-file-name "state/" root))
+         (org-files (expand-file-name "org-files/" root))
+         (org-roam (expand-file-name "org-roam/" root))
+         (socket (expand-file-name "ipc/node.sock" state)))
+    (unwind-protect
+        (progn
+          (make-directory org-files t)
+          (make-directory org-roam t)
+          (make-directory (file-name-directory socket) t)
+          (let ((brain-id "11111111-1111-4111-8111-111111111111")
+                (brain-writer-id "22222222-2222-4222-8222-222222222222")
+                (brain-managed-roots (list (cons "org-files" org-files)
+                                           (cons "org-roam" org-roam)))
+                (brain-state-directory state)
+                (brain-transport-directory nil)
+                (brain-node-socket socket)
+                (brain-fsync-enabled nil)
+                (brain-reconnect-interval 0.05))
+            (brain-test--reset-state)
+            (brain-test--node-start socket)
+            (unwind-protect
+                (progn
+                  (brain-enable)
+                  (should (brain-test--wait-for
+                           (lambda () (brain-test--node-frames "brain.client.ready"))))
+                  (let ((epoch brain--client-epoch))
+                    (should epoch)
+                    (should (equal (alist-get "client_epoch"
+                                              (car (brain-test--node-frames "brain.subscribe"))
+                                              nil nil #'equal)
+                                   epoch))
+                    ;; The node restarts: the connection goes away, the endpoint goes away, the
+                    ;; endpoint comes back. No manual `brain-disable'/`brain-enable' anywhere.
+                    (brain-test--node-drop-connection)
+                    (brain-test--node-stop)
+                    (delete-file socket)
+                    (should (brain-test--wait-for
+                             (lambda () (not (plist-get (brain-status) :connected)))))
+                    (brain-test--node-forget)
+                    (brain-test--node-start socket)
+                    (should (brain-test--wait-for
+                             (lambda () (brain-test--node-frames "brain.client.ready"))))
+                    (let ((subscribe (car (brain-test--node-frames "brain.subscribe")))
+                          (ready (car (brain-test--node-frames "brain.client.ready"))))
+                      (should subscribe)
+                      (should ready)
+                      ;; The node clears its reconciliation flag on subscribe and only routes
+                      ;; installs again for a ready carrying that same epoch.
+                      (should (equal (alist-get "client_epoch" subscribe nil nil #'equal) epoch))
+                      (should (equal (alist-get "client_epoch" ready nil nil #'equal) epoch)))
+                    (should (plist-get (brain-status) :connected))
+                    (should brain--reconciled)))
+                (brain-disable))
+            )
+            )
+      (brain-test--node-stop)
+      (delete-directory root t))))
+
 (provide 'brain-test)
 ;;; brain-test.el ends here

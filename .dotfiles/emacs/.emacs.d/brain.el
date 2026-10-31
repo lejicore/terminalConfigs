@@ -120,6 +120,13 @@ Nil means `transport/' beneath `brain-state-directory'."
   "Idle delay before queued install requests are executed."
   :type 'number)
 
+(defcustom brain-reconnect-interval 2.0
+  "Seconds between bounded reconnect attempts while the node endpoint is absent.
+A node restart (or any IPC close) must not leave Emacs offline until a manual
+`brain-disable'/`brain-enable': the client resubscribes with its epoch, which is
+the design's `Emacs subscribes with epoch after recovery' requirement."
+  :type 'number)
+
 (defcustom brain-mode-line-indicator nil
   "When non-nil, the mode line shows the quiet Brain state string."
   :type 'boolean)
@@ -191,6 +198,9 @@ here instead of being dropped: it is durable in the journal, visible in
 
 (defvar brain--ipc-bytes ""
   "Partial inbound frame bytes.")
+
+(defvar brain--reconnect-timer nil
+  "The one bounded reconnect timer, or nil when Brain is disabled.")
 
 (defvar brain--inbox nil
   "Validated inbound frames waiting for the idle dispatcher.")
@@ -1614,16 +1624,29 @@ function is set to nil by Emacs and would then no longer run at all."
           brain--reconciled nil
           brain--ipc-bytes "")))
 
+(defun brain--unix-socket-p (attributes)
+  "True when ATTRIBUTES describe a UNIX socket, whatever `file-attributes' reports.
+`file-attributes' puts the type in its first element: `t' for a directory, a
+string for a symbolic link and nil for everything else -- and on the reviewed
+Mac a real 0600 node.sock is exactly that nil case, which is why the reviewed
+test `(eq (car (file-attributes socket 'string)) 'socket)' could never pass.
+The modes string's first character is the POSIX file type, so `s' is the honest
+test."
+  (let ((modes (file-attribute-modes attributes)))
+    (and (stringp modes) (> (length modes) 0) (eq ?s (aref modes 0)))))
+
 (defun brain--ipc-connect ()
   "Connect to the node endpoint after checking its type and ownership."
   (let* ((socket (brain--socket-path))
-         (attributes (file-attributes socket 'string))
+         ;; Numeric ids on purpose: with the `string' id format the owner comes back as a
+         ;; name, which `user-uid' cannot be compared with (it signals wrong-type-argument).
+         (attributes (file-attributes socket))
          (type (car attributes))
-         (uid (file-attribute-user-id attributes)))
+         (uid (and attributes (file-attribute-user-id attributes))))
     (cond
      ((null attributes) (brain--log "no node socket") nil)
      ((stringp type) (brain--log "refusing symlinked socket") nil)
-     ((not (eq type 'socket)) (brain--log "node endpoint is not a socket") nil)
+     ((not (brain--unix-socket-p attributes)) (brain--log "node endpoint is not a socket") nil)
      ((and uid (/= uid (user-uid))) (brain--log "socket owned by another uid") nil)
      (t
       (condition-case err
@@ -1651,6 +1674,41 @@ function is set to nil by Emacs and would then no longer run at all."
     (brain--emit-event "emacs.online" (list (cons "epoch" (max 1 brain--epoch))))
     (brain--pump-outbox)
     t))
+
+;;; ---------------------------------------------------------------------------
+;;; Bounded reconnect
+;;; ---------------------------------------------------------------------------
+
+(defun brain--ipc-connected-p ()
+  (and brain--ipc (process-live-p brain--ipc) t))
+
+(defun brain--reconnect ()
+  "One bounded reconnect attempt after the node endpoint went away.
+The design requires the client to subscribe with its epoch after recovery:
+the node clears its reconciliation flag on `brain.subscribe' and routes install
+requests again only once `brain.client.ready' carries that same epoch, so a
+reconnect repeats both frames. The durable outbox is resent by
+`brain--announce-ready', which is what makes an offline save survive a node
+restart without a manual `brain-disable'/`brain-enable'."
+  (when (and brain--enabled (not (brain--ipc-connected-p)))
+    (condition-case err
+        (progn
+          (brain--subscribe)
+          (when (brain--ipc-connected-p)
+            (brain--announce-ready)))
+      (error (brain--log "ipc reconnect failed: %S" err)))))
+
+(defun brain--start-reconnect ()
+  "Poll for a usable node endpoint while Brain is enabled (one timer, no chain)."
+  (brain--stop-reconnect)
+  (setq brain--reconnect-timer
+        (run-with-timer brain-reconnect-interval brain-reconnect-interval
+                        #'brain--reconnect)))
+
+(defun brain--stop-reconnect ()
+  (when brain--reconnect-timer
+    (cancel-timer brain--reconnect-timer)
+    (setq brain--reconnect-timer nil)))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Inbound dispatch
@@ -2086,7 +2144,13 @@ save and stop leasing the edit."
       (make-directory directory t)
       (make-directory (brain--journal-dir) t)
       (make-directory (brain--ipc-dir) t)
-      (ignore-errors (set-file-modes (directory-file-name directory) #o700)))
+      ;; `make-directory' leaves the process umask (0755 here) on every directory it creates,
+      ;; and the reviewed `BrainIPC.prepareEndpoint' refuses an endpoint directory whose mode
+      ;; grants any group/other bit (`mode & 0o077'). Brain's own state is private, so it is
+      ;; created private: a 0755 ipc/ made every install fail closed until it was chmod'd by
+      ;; hand.
+      (dolist (created (list directory (brain--journal-dir) (brain--ipc-dir)))
+        (set-file-modes (directory-file-name created) #o700)))
     (setq brain--enabled t)
     (brain--install-guards)
     (add-hook 'find-file-hook #'brain--setup-buffer t)
@@ -2097,6 +2161,7 @@ save and stop leasing the edit."
     (brain--mark-live-dirty-buffers)
     (brain--subscribe)
     (brain--announce-ready)
+    (brain--start-reconnect)
     (run-with-idle-timer brain-dispatch-idle t #'brain-dispatch-once)
     t)))
 
@@ -2104,6 +2169,7 @@ save and stop leasing the edit."
   "Stop guarding and connecting.  Journal and pending state are preserved."
   (interactive)
   (setq brain--enabled nil)
+  (brain--stop-reconnect)
   (brain--remove-guards)
   (remove-hook 'find-file-hook #'brain--setup-buffer)
   (remove-hook 'after-change-major-mode-hook #'brain--setup-buffer)
