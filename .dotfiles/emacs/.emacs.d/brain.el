@@ -41,6 +41,7 @@
 (require 'subr-x)
 (require 'seq)
 (require 'json)
+(require 'nadvice)
 
 (declare-function org-mode "org" (&optional arg))
 (declare-function org-with-wide-buffer "org-macs" (&rest body))
@@ -84,7 +85,8 @@ Only regular `.org' files beneath these directories are managed."
   :type '(repeat (cons string directory)))
 
 (defcustom brain-transport-directory nil
-  "Directory of the immutable object share (TRANSPORT/mac/<sha256>.org).
+  "Directory of the immutable object share.
+Objects live at TRANSPORT/objects/<producer>/<sha256>.org.
 Nil means `transport/' beneath `brain-state-directory'."
   :type '(choice (const :tag "Default" nil) directory))
 
@@ -339,8 +341,12 @@ flushing is disabled the call is a no-op success."
     (expand-file-name "ipc/node.sock" (brain--state-dir))))
 
 (defun brain--object-path (producer digest)
-  "Absolute path of the immutable object PRODUCER/DIGEST.org."
-  (expand-file-name (concat producer "/" digest ".org") (brain--transport-dir)))
+  "Absolute path of the immutable object PRODUCER/DIGEST.org.
+Objects live under the shared transport directory's `objects/' namespace, the
+same layout the gateway's `ObjectStore' uses
+(`<state_root>/transport/objects/<producer>/<sha>.org'): both sides must name
+one file for one digest or Syncthing delivers bytes neither side can read."
+  (expand-file-name (concat "objects/" producer "/" digest ".org") (brain--transport-dir)))
 
 (defun brain--log (format-string &rest args)
   "Append one diagnostic line to log/brain.log.  Never signals, never messages."
@@ -613,7 +619,7 @@ non-regular file or a root that escapes its configuration is unsafe."
 ;;; ---------------------------------------------------------------------------
 
 (defun brain--publish-object (bytes digest &optional producer)
-  "Publish BYTES as PRODUCER/<DIGEST>.org without overwriting different bytes.
+  "Publish BYTES as objects/PRODUCER/<DIGEST>.org without overwriting.
 PRODUCER defaults to this peer's own namespace (mac)."
   (let* ((producer (or producer "mac"))
          (final (brain--object-path producer digest))
@@ -635,6 +641,24 @@ PRODUCER defaults to this peer's own namespace (mac)."
           (when (file-exists-p temp) (ignore-errors (delete-file temp))))
         t)))))
 
+(defun brain--rename-file-primitive (from to &optional ok-if-exists)
+  "Rename FROM to TO with the file primitive, firing no `rename-file' advice.
+`brain--atomic-replace' runs inside the no-yield section, where user-facing
+advice must not run: `org-roam-db-autosync-mode' advises `rename-file' with
+`org-roam-db-autosync--rename-file-a', which calls `org-roam-db-update-file'
+and that re-saves the buffer visiting TO.  Because brain has just replaced the
+file, that nested `basic-save-buffer' sees a stale visited modtime and asks
+\"<file> has changed since visited or saved.  Save anyway?\", which blocks a
+daemon with no user at the keyboard forever (and \"no\" becomes `user-error',
+i.e. `commit_error:user-error').  The cache that advice maintains is refreshed
+by the commit itself: `brain--run-post-commit-hooks' runs `after-save-hook' for
+every already visiting buffer, and a human save's own buffer gets it from
+`basic-save-buffer' once the handler returns."
+  (let ((function (symbol-function #'rename-file)))
+    (if (advice--p function)
+        (funcall (advice--cdr function) from to ok-if-exists)
+      (rename-file from to ok-if-exists))))
+
 (defun brain--atomic-replace (path bytes)
   "Replace PATH with BYTES via a same-directory rename, preserving its mode."
   (let* ((directory (file-name-directory path))
@@ -646,7 +670,7 @@ PRODUCER defaults to this peer's own namespace (mac)."
           (let ((coding-system-for-write 'binary))
             (write-region bytes nil temp nil 'no-message))
           (set-file-modes temp mode)
-          (rename-file temp path t))
+          (brain--rename-file-primitive temp path t))
       (when (file-exists-p temp) (ignore-errors (delete-file temp))))
     path))
 

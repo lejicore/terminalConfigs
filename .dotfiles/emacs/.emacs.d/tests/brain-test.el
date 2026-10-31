@@ -7,6 +7,10 @@
 ;; `buffer-modified-p' is not mocked, and the IPC path goes through the real
 ;; process filter with real length-prefixed frames.
 ;;
+;; The managed-save tests also drive the real `org-roam-db-autosync-mode'
+;; advice on `rename-file' (loaded from the user's straight build tree); they
+;; skip only when org-roam is not installed at all.
+;;
 ;; Run: emacs -Q --batch -L <module dir> -l ert -l tests/brain-test.el \
 ;;        -f ert-run-tests-batch-and-exit
 
@@ -21,6 +25,11 @@
   (add-to-list 'load-path source))
 
 (require 'brain)
+
+;; Loaded lazily by `brain-test--load-org-roam'; declared here so the bindings
+;; below are dynamic bindings of the real variables, not new lexical ones.
+(defvar org-roam-directory)
+(defvar org-roam-db-location)
 
 ;;; ---------------------------------------------------------------------------
 ;;; Harness
@@ -142,6 +151,70 @@
 (defun brain-test--last-event-payload ()
   "Return the payload of the last journaled Brain event envelope."
   (alist-get "payload" (plist-get (brain-test--last-event) :payload) nil nil #'equal))
+
+;;; ---------------------------------------------------------------------------
+;;; The real org-roam autosync hook
+;;; ---------------------------------------------------------------------------
+
+(defvar brain-test--org-roam-loaded nil
+  "Non-nil once the real org-roam is on the load path and required.")
+
+(defun brain-test--load-org-roam ()
+  "Load the real org-roam, so its advice on `rename-file' is the live one.
+The suite runs under `emacs -Q --batch', where the user's package directory is
+not on `load-path'; the straight build tree is added when it exists.  A stub is
+never substituted: the defect being covered only exists with the real advice.
+The tree's own Org build is deliberately left out: it was compiled against a
+different Org release than the built-in one, so adding it makes Org emit its
+mixed-version warning into `*Warnings*' and swaps the Org the rest of this suite
+runs with.  org-roam itself, and the advice under test, are the user's real
+bytes."
+  (unless brain-test--org-roam-loaded
+    (unless (require 'org-roam-db nil t)
+      (dolist (dir (ignore-errors
+                     (directory-files (expand-file-name "~/.cache/emacs/straight/build")
+                                      t "^[^.]")))
+        (when (and (file-directory-p dir)
+                   (not (equal (file-name-nondirectory (directory-file-name dir)) "org")))
+          (add-to-list 'load-path dir)))
+      (require 'org-roam-db nil t))
+    (setq brain-test--org-roam-loaded (and (featurep 'org-roam-db) t)))
+  brain-test--org-roam-loaded)
+
+(defmacro brain-test--with-org-roam-autosync (&rest body)
+  "Run BODY with `org-roam-db-autosync-mode' live over the managed roam root.
+Skipped only when org-roam is genuinely absent from this Emacs."
+  (declare (indent 0) (debug t))
+  `(if (not (brain-test--load-org-roam))
+       (ert-skip "org-roam is not installed in this Emacs")
+     ;; The variables are bound only after org-roam has defined them as special.
+     (let* ((org-roam-directory
+             (file-name-as-directory (expand-file-name "org-roam/" brain-test--root)))
+            (org-roam-db-location (expand-file-name "roam.db" brain-test--root)))
+       (org-roam-db-autosync-mode 1)
+       (unwind-protect
+           (progn ,@body)
+         (org-roam-db-autosync-mode -1)))))
+
+(defun brain-test--call-without-questions (function)
+  "Call FUNCTION with every question answered \"no\", returning the questions.
+A save that reaches a prompt in a daemon blocks forever; answering \"no\" turns
+that into an error, so a test can never hang on it."
+  (let ((asked nil))
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (&rest args) (push (apply #'format args) asked) nil))
+              ((symbol-function 'y-or-n-p)
+               (lambda (&rest args) (push (apply #'format args) asked) nil)))
+      (funcall function))
+    (nreverse asked)))
+
+(defun brain-test--roam-db-hash (path)
+  "Return the org-roam cache hash recorded for PATH, or nil."
+  (caar (org-roam-db-query [:select hash :from files :where (= file $s1)] path)))
+
+(defun brain-test--roam-file-title (path)
+  "Return the org-roam cache file title recorded for PATH, or nil."
+  (caar (org-roam-db-query [:select [title] :from files :where (= file $s1)] path)))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Identity and path safety
@@ -1048,6 +1121,42 @@
         (should (equal seqs (number-sequence 1 (length seqs))))))))
 
 ;;; ---------------------------------------------------------------------------
+;;; The shared object namespace
+;;; ---------------------------------------------------------------------------
+
+(ert-deftest brain-test-object-path-matches-the-gateway-object-store-layout ()
+  "The Mac and the gateway must name one file for one digest.
+The reviewed gateway store publishes and reads
+`<state_root>/transport/objects/<producer>/<sha256>.org' (`store.py',
+`ObjectStore'), and the reviewed deployment declares the same producer
+namespaces.  The transport directory is the synced root, so the Mac half has to
+write `objects/<producer>/<sha>.org' inside it: with a different namespace
+Syncthing delivers bytes the store can never see (`objects.exists' false,
+`confirm_commit_bytes' never satisfiable)."
+  (brain-test--with-environment
+    (let* ((text "* object\n")
+           (bytes (brain-test--bytes text))
+           (digest (brain--sha256 bytes))
+           (transport (brain--transport-dir))
+           (mac-path (brain--object-path "mac" digest))
+           (hermes-path (brain--object-path "hermes" digest)))
+      ;; The exact relative path the Python ObjectStore builds.
+      (should (equal (file-relative-name mac-path transport)
+                     (concat "objects/mac/" digest ".org")))
+      (should (equal (file-relative-name hermes-path transport)
+                     (concat "objects/hermes/" digest ".org")))
+      ;; The transport directory is `transport/' beneath the private state dir.
+      (should (equal transport (expand-file-name "transport/" brain-test--state)))
+      ;; Publishing writes exactly there, and the same namespace reads it back.
+      (brain--publish-object bytes digest)
+      (should (file-regular-p mac-path))
+      (should (equal (brain-test--read-bytes mac-path) bytes))
+      (should (equal (brain--read-object "mac" digest (length bytes)) bytes))
+      ;; A digest that was never published is not found anywhere else either.
+      (should-not (file-exists-p (expand-file-name (concat "mac/" digest ".org")
+                                                   transport))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Snapshots, inventory and projection
 ;;; ---------------------------------------------------------------------------
 
@@ -1252,6 +1361,100 @@
       ;; fired while the text was being replaced.
       (should (= save-count 1))
       (should (= change-count 0)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Managed saves under the live org-roam configuration
+;;; ---------------------------------------------------------------------------
+
+(ert-deftest brain-test-human-save-under-org-roam-autosync-never-asks ()
+  "A managed save must never reach `basic-save-buffer's \"Save anyway?\" prompt.
+`org-roam-db-autosync-mode' advises `rename-file'; the advice re-saves the
+buffer visiting the replaced path, and while brain is replacing the file that
+nested save used to ask \"<file> has changed since visited or saved.  Save
+anyway?\" -- which blocks a daemon with no user at the keyboard, and answering
+\"no\" turned every save into `attention: commit_error:user-error' (observed
+live on the Mac, 2026-10-31).  A new file and an existing file must both save
+through `brain-write-contents-handler' with no question at all."
+  (brain-test--with-environment
+    (brain-test--with-org-roam-autosync
+      ;; 1. A file that already exists on disk.
+      (let* ((file-id "org-roam/Existing.org")
+             (path (brain--file-path file-id))
+             (text "* Existing\n")
+             (asked nil))
+        (brain-test--write path text)
+        (let ((buffer (brain-test--visit file-id)))
+          (with-current-buffer buffer
+            ;; The live hook, not a stand-in, must be the one installed.
+            (should (memq #'org-roam-db-autosync--try-update-on-save-h after-save-hook))
+            (goto-char (point-max))
+            (insert "* edited\n")
+            (setq asked (brain-test--call-without-questions #'save-buffer))
+            (should-not asked)
+            (should-not (buffer-modified-p))
+            (should (verify-visited-file-modtime buffer))))
+        (should (equal (brain-test--read-bytes path)
+                       (brain-test--bytes (concat text "* edited\n"))))
+        (should (equal (plist-get (gethash file-id brain--heads) :sha256)
+                       (brain--sha256-file path)))
+        ;; The derived index was refreshed from the installed bytes.
+        (should (equal (brain-test--roam-db-hash path) (org-roam-db--file-hash path))))
+      ;; 2. A brand-new file: the buffer visits a path that does not exist yet.
+      (let* ((file-id "org-roam/Brand.org")
+             (path (brain--file-path file-id))
+             (asked nil))
+        (should-not (file-exists-p path))
+        (let ((buffer (brain-test--visit file-id)))
+          (with-current-buffer buffer
+            (goto-char (point-max))
+            (insert "* Brand new\n")
+            (setq asked (brain-test--call-without-questions #'save-buffer))
+            (should-not asked)
+            (should-not (buffer-modified-p))
+            (should (verify-visited-file-modtime buffer))))
+        (should (equal (brain-test--read-bytes path) (brain-test--bytes "* Brand new\n")))
+        (should (file-exists-p (brain--object-path "mac" (brain--sha256-file path))))
+        (should (equal (brain-test--roam-db-hash path) (org-roam-db--file-hash path)))))))
+
+(ert-deftest brain-test-remote-install-refreshes-the-derived-index ()
+  "A remote install must leave the org-roam cache on the installed bytes.
+The `rename-file' advice that used to run inside the replace indexed the
+visiting buffer's *pre-install* text (and recorded the new file's hash, so the
+cache looked current while it was stale).  The commit refreshes the index
+itself, from the bytes it installed, and never asks a question."
+  (brain-test--with-environment
+    (brain-test--with-org-roam-autosync
+      (let* ((file-id "org-roam/Remote.org")
+             (path (brain--file-path file-id))
+             (base nil)
+             (buffer nil)
+             (result nil)
+             (asked nil)
+             (installed "#+title: installed\n* from gateway\n"))
+        (brain-test--write path "#+title: base\n* base\n")
+        (setq base (brain--enroll-baseline file-id path (brain--sha256-file path)))
+        (setq buffer (brain-test--visit file-id))
+        (with-current-buffer buffer
+          (should (memq #'org-roam-db-autosync--try-update-on-save-h after-save-hook))
+          ;; The live daemon already has these bytes indexed.
+          (org-roam-db-update-file path))
+        (should (equal (brain-test--roam-file-title path) "base"))
+        (setq asked
+              (brain-test--call-without-questions
+               (lambda ()
+                 (setq result (brain-commit-file
+                               (brain-test--install-spec file-id base installed))))))
+        (should-not asked)
+        (should (equal (plist-get result :status) "committed"))
+        (should (equal (brain-test--read-bytes path) (brain-test--bytes installed)))
+        (with-current-buffer buffer
+          (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                         installed))
+          (should-not (buffer-modified-p))
+          (should (verify-visited-file-modtime buffer)))
+        ;; The index follows the installed bytes, not the replaced ones.
+        (should (equal (brain-test--roam-file-title path) "installed"))
+        (should (equal (brain-test--roam-db-hash path) (org-roam-db--file-hash path)))))))
 
 (ert-deftest brain-test-hook-error-does-not-lose-instrumentation ()
   (brain-test--with-environment
