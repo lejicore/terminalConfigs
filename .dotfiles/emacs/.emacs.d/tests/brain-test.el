@@ -4205,6 +4205,48 @@ The retirement is journaled with its retained head and its own generation."
         (should (equal (plist-get record :source_file_id) file-id))
         (should (brain--rev-equal (plist-get record :source_revision) base))))))
 
+(ert-deftest brain-test-lifecycle-never-guesses-an-external-move ()
+  "A missing path and a new path carrying the same Org ID are NOT one move (§3).
+\"Unmanaged external moves are NOT guessed from titles/mtime: enroll destination
+and retire proven-missing source independently.\"  The Mac has no identity to
+infer here -- the Org ID lives inside the bytes -- so the two paths stay two
+identities: the source is retired as missing and the destination is enrolled on
+its own, with no relocation record and no shared predecessor."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/MoveSource.org")
+           (destination "org-files/MoveTarget.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (body "#+title: same node\n:PROPERTIES:\n:ID: 11111111-2222-3333-4444-555555555555\n:END:\n* node\n")
+           (base (brain-test--enroll source body)))
+      ;; The human moved the file outside Emacs: same bytes, new path.
+      (brain-test--write destination-path body)
+      (brain-test--delete source-path)
+      ;; Two complete inventories, 61 s apart, both lacking the source.
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (let ((observations (gethash source brain--missing-observations)))
+        (puthash source (list (- (nth 0 observations) 61)) brain--missing-observations))
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (brain-test--snapshot-request source)
+      (should (brain--retired-p source))
+      ;; The destination is a SEPARATE identity: unborn until its own target
+      ;; request enrolls it, with no predecessor and no relocation record.
+      (should-not (gethash destination brain--heads))
+      (should-not (seq-find (lambda (record)
+                              (and (equal (plist-get record :kind) "lifecycle")
+                                   (equal (plist-get record :destination_file_id) destination)))
+                            brain--journal))
+      (brain-test--snapshot-request destination)
+      (should (= (plist-get (gethash destination brain--heads) :seq) 0))
+      (should (null (plist-get (seq-find (lambda (record)
+                                           (and (equal (plist-get record :kind) "snapshot")
+                                                (equal (plist-get record :file_id) destination)))
+                                         brain--journal)
+                               :prev_revision)))
+      ;; The source keeps its own retained head and its own history.
+      (should (brain--rev-equal (gethash source brain--heads) base)))))
+
 (ert-deftest brain-test-lifecycle-incomplete-inventory-is-not-membership-evidence ()
   "An incomplete inventory never counts toward a retirement (§3).
 \"Enumeration failure/partial scan ... cannot retire.\"  A missing root makes the
