@@ -63,7 +63,12 @@
         brain--in-critical nil
         brain--inhibit-guards nil
         brain--ipc nil
-        brain--commit-count 0))
+        brain--commit-count 0
+        brain--retired (make-hash-table :test #'equal)
+        brain--lifecycle-generations (make-hash-table :test #'equal)
+        brain--lifecycle-seq 0
+        brain--missing-observations (make-hash-table :test #'equal)
+        brain--corpus-observed nil))
 
 (defvar brain-test--org-roam-first nil
   "Non-nil when the environment must enable autosync before `brain-enable'.
@@ -1272,14 +1277,34 @@ not change what the frame says."
       (should (equal (brain-test--read-bytes path) (brain-test--bytes "* A\n"))))))
 
 (ert-deftest brain-test-rename-and-delete-refused ()
+  "A rename or delete that the lifecycle cannot own is still refused (§3).
+E3 routes an ELIGIBLE single-file managed rename/delete into the narrow wrappers
+(`brain-rename-file'/`brain-delete-file'), so the accepted blanket refusal is now
+split in two: what the lifecycle can own is recorded, and what it cannot own -- a
+parent-directory move, a destination outside the managed namespace, a
+destination that already exists -- is refused exactly as before."
   (brain-test--with-environment
     (let* ((file-id "org-files/Guarded.org")
            (path (brain--file-path file-id))
-           (target (expand-file-name "org-files/Other.org" brain-test--root)))
+           (target (expand-file-name "org-files/Other.org" brain-test--root))
+           (outside (expand-file-name "outside.org" brain-test--root)))
       (brain-test--write path "* A\n")
-      (should-error (rename-file path target) :type 'brain-alternate-route)
-      (should-error (delete-file path) :type 'brain-alternate-route)
-      (should (file-exists-p path)))))
+      ;; A destination outside the managed roots is not a managed identity.
+      (should-error (rename-file path outside) :type 'brain-alternate-route)
+      ;; A parent-directory move is refused: it would relocate identities with no
+      ;; lifecycle record for any of them.
+      (should-error (rename-file (file-name-directory path) outside)
+                    :type 'brain-alternate-route)
+      (should (file-exists-p path))
+      ;; The eligible managed rename is now owned by the lifecycle, not refused.
+      (should-not (rename-file path target))
+      (should-not (file-exists-p path))
+      (should (file-exists-p target))
+      (should (brain--retired-p file-id))
+      ;; And the managed delete of the new identity is a retirement too.
+      (should-not (delete-file target))
+      (should-not (file-exists-p target))
+      (should (brain--retired-p "org-files/Other.org")))))
 
 (ert-deftest brain-test-save-as-into-managed-root-refused ()
   (brain-test--with-environment
@@ -3439,3 +3464,979 @@ enable, for a buffer that is genuinely clean."
         (should (gethash file-id brain--dirty))
         (should (equal (gethash file-id brain--attention) "existing_attention"))
         (should (= (hash-table-count brain--heads) before-heads))))))
+
+;;; ---------------------------------------------------------------------------
+;;; E3 — guarded identity lifecycle and recovery (design §3)
+;;; ---------------------------------------------------------------------------
+;;
+;; Everything below drives REAL temporary files, REAL buffers and the REAL
+;; journal on disk: the lifecycle commands are not stubbed, the atomic rename and
+;; unlink are the file primitives, and a "crash" is simulated by dropping every
+;; in-memory table and recovering from the journal exactly as a daemon restart
+;; does.  The org-roam tests use the user's real `org-roam-db-autosync-mode'
+;; advice, not a stand-in.
+
+(defun brain-test--lifecycle-records ()
+  "Every journaled lifecycle RECORD (not intent), in order."
+  (brain--journal-records "lifecycle"))
+
+(defun brain-test--lifecycle-record-for (operation-id)
+  (seq-find (lambda (record) (equal (plist-get record :operation_id) operation-id))
+            (brain-test--lifecycle-records)))
+
+(defun brain-test--lifecycle-payloads ()
+  "Every `brain.file.lifecycle' payload put on the wire, wire-decoded."
+  (brain-test--events-of-kind "brain.file.lifecycle"))
+
+(defun brain-test--lifecycle-generation-for (file-id)
+  (gethash file-id brain--lifecycle-generations))
+
+(defun brain-test--last-lifecycle-payload-for (file-id)
+  "The last lifecycle payload that names FILE-ID as source or destination."
+  (car (last (seq-filter
+              (lambda (payload)
+                (let ((source (alist-get "source" payload nil nil #'equal))
+                      (destination (alist-get "destination" payload nil nil #'equal)))
+                  (or (equal (alist-get "file_id" source nil nil #'equal) file-id)
+                      (equal (alist-get "file_id" destination nil nil #'equal) file-id))))
+              (brain-test--lifecycle-payloads)))))
+
+(defun brain-test--negotiate-corpus ()
+  "Make this session's corpus-v1 negotiation explicit, as a live one would be.
+A lifecycle fact is journaled either way; the EVENT is only emitted once the Mac
+has observed the feature live (§1/§3), which in production happens when the first
+corpus-mode request arrives through a node and gateway that both advertised it."
+  (setq brain--corpus-observed t))
+
+;;; --- rename ----------------------------------------------------------------
+
+(ert-deftest brain-test-lifecycle-rename-retires-the-source-and-keeps-history ()
+  "A guarded rename moves the bytes, retires the source and keeps its history.
+§3: the source keeps its head, its object and its history and is only marked
+inactive; the destination takes a canonical revision from ITS OWN chain; and the
+writer id never changes."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/Before.org")
+           (destination "org-files/After.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (base (brain-test--enroll source "* one\n"))
+           (second (plist-get (brain-commit-file
+                               (brain-test--install-spec source base "* one\n* two\n"))
+                              :new-revision))
+           (operation-id (brain--uuid))
+           (result (brain-rename-file source destination operation-id)))
+      (should (equal (plist-get result :status) "committed"))
+      (should (equal (plist-get result :action) "relocate"))
+      ;; The bytes moved; nothing was rewritten.
+      (should-not (file-exists-p source-path))
+      (should (equal (brain-test--read-bytes destination-path)
+                     (brain-test--bytes "* one\n* two\n")))
+      ;; The source is inactive but keeps its retained head and its chain.
+      (should (brain--retired-p source))
+      (should (brain--rev-equal (gethash source brain--heads) second))
+      (brain-test--history-request source -1 50)
+      (should (equal (mapcar (lambda (fact)
+                               (plist-get (brain--rev<-json
+                                           (alist-get "revision" fact nil nil #'equal))
+                                          :seq))
+                             (alist-get "facts"
+                                        (brain-test--last-payload-of-kind
+                                         "brain.file.history")
+                                        nil nil #'equal))
+                     '(0 1)))
+      ;; The destination is a never-used path, so it starts at seq 0.
+      (should (= (plist-get (gethash destination brain--heads) :seq) 0))
+      (should (equal (plist-get (gethash destination brain--heads) :writer-id)
+                     brain-writer-id))
+      ;; The record names both sides and a lifecycle generation of its own.
+      (let ((record (brain-test--lifecycle-record-for operation-id)))
+        (should record)
+        (should (equal (plist-get record :action) "relocate"))
+        (should (equal (plist-get record :source_file_id) source))
+        (should (equal (plist-get record :destination_file_id) destination))
+        (should (equal (plist-get record :lifecycle_generation) 1))
+        (should (brain--rev-equal (plist-get record :destination_predecessor) nil)))
+      ;; The wire fact is the §3 shape, and the generation is NOT a revision seq.
+      (let ((payload (brain-test--last-lifecycle-payload-for destination)))
+        (should (equal (alist-get "action" payload nil nil #'equal) "relocate"))
+        (should (equal (alist-get "lifecycle_generation" payload nil nil #'equal) 1))
+        (should (equal (alist-get "file_id" (alist-get "source" payload nil nil #'equal)
+                                  nil nil #'equal)
+                       source))
+        (should (equal (alist-get "file_id"
+                                  (alist-get "destination" payload nil nil #'equal)
+                                  nil nil #'equal)
+                       destination))))))
+
+(ert-deftest brain-test-lifecycle-rename-continues-a-previously-used-destination ()
+  "A destination that was used before resumes its own chain (§3).
+\"New path starts at seq0 only if never used.  A previously used path resumes with
+predecessor=its retained head and seq+1.\"  The retained head here comes from a
+retirement, which is exactly the case a naive seq-0 baseline would rewind."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/From.org")
+           (destination "org-files/Reused.org")
+           (destination-path (brain--file-path destination))
+           (base (brain-test--enroll source "* from\n"))
+           (_ (brain-test--enroll destination "* old destination\n"))
+           (old-head (gethash destination brain--heads))
+           (_retire (brain-delete-file destination))
+           (result (brain-rename-file source destination)))
+      (should (equal (plist-get result :status) "committed"))
+      (should (equal (brain-test--read-bytes destination-path)
+                     (brain-test--bytes "* from\n")))
+      ;; The destination's chain continued: seq 1 on top of its retained seq 0.
+      (should (= (plist-get (gethash destination brain--heads) :seq) 1))
+      (should (brain--rev-equal (plist-get result :new-revision)
+                                (gethash destination brain--heads)))
+      (brain-test--history-request destination -1 50)
+      (let ((facts (alist-get "facts" (brain-test--last-payload-of-kind
+                                       "brain.file.history")
+                              nil nil #'equal)))
+        (should (equal (mapcar (lambda (fact)
+                                 (plist-get (brain--rev<-json
+                                             (alist-get "revision" fact nil nil #'equal))
+                                            :seq))
+                               facts)
+                       '(0 1)))
+        ;; The second fact's predecessor is the retained head, not null.
+        (should (brain--rev-equal
+                 (brain--rev<-json (alist-get "predecessor_revision" (nth 1 facts)
+                                              nil nil #'equal))
+                 old-head)))
+      ;; The source's own chain is untouched and its baseline is not seq 0.
+      (should (brain--rev-equal (gethash source brain--heads) base)))))
+
+(ert-deftest brain-test-lifecycle-rename-refuses-a-dirty-source-and-keeps-both-buffers ()
+  "A dirty source refuses the rename and loses no buffer text (§3).
+\"Commands require clean source/destination ... Never retarget a dirty buffer.\"
+The unsaved text must still be in its buffer and the file must be where it was."
+  (brain-test--with-environment
+    (let* ((source "org-files/DirtySource.org")
+           (destination "org-files/DirtyTarget.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (buffer nil)
+           (result nil))
+      (brain-test--write source-path "* disk\n")
+      (setq buffer (brain-test--visit source))
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (insert "* unsaved sentinel\n"))
+      (setq result (brain-rename-file source destination))
+      (should (equal (plist-get result :status) "dirty"))
+      (should (member (plist-get result :reason) '("dirty_lease" "modified_buffer")))
+      ;; Nothing moved, nothing was lost, nothing was retired.
+      (should (file-exists-p source-path))
+      (should-not (file-exists-p destination-path))
+      (should-not (brain--retired-p source))
+      (should (equal (with-current-buffer buffer
+                       (buffer-substring-no-properties (point-min) (point-max)))
+                     "* disk\n* unsaved sentinel\n"))
+      (should (buffer-modified-p buffer))
+      (should (equal (brain-test--read-bytes source-path) (brain-test--bytes "* disk\n"))))))
+
+(ert-deftest brain-test-lifecycle-rename-refuses-a-dirty-destination ()
+  "A dirty DESTINATION refuses the rename too, and no buffer is retargeted (§3).
+The destination's unsaved text is not the source's to overwrite, and the source's
+clean buffer must stay where it is."
+  (brain-test--with-environment
+    (let* ((source "org-files/CleanSource.org")
+           (destination "org-files/DirtyDestination.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (source-buffer nil)
+           (destination-buffer nil)
+           (result nil))
+      (brain-test--write source-path "* source\n")
+      ;; The destination buffer visits a path that does not exist yet, exactly as
+      ;; an unsaved new Org file does.  An EXISTING destination is refused for a
+      ;; different reason (`destination_exists', covered above); here the only
+      ;; thing standing between the rename and lost text is the dirty buffer.
+      (should-not (file-exists-p destination-path))
+      (setq source-buffer (brain-test--visit source))
+      (setq destination-buffer (brain-test--visit destination))
+      (with-current-buffer destination-buffer
+        (goto-char (point-max))
+        (insert "* destination sentinel\n"))
+      (setq result (brain-rename-file source destination))
+      (should (equal (plist-get result :status) "dirty"))
+      (should (file-exists-p source-path))
+      (should-not (file-exists-p destination-path))
+      (should (equal (brain-test--read-bytes source-path) (brain-test--bytes "* source\n")))
+      ;; Neither buffer was retargeted or rewritten.
+      (with-current-buffer source-buffer
+        (should (equal (file-truename (buffer-file-name)) (file-truename source-path))))
+      (with-current-buffer destination-buffer
+        (should (equal (file-truename (buffer-file-name)) (file-truename destination-path)))
+        (should (buffer-modified-p))))))
+
+(ert-deftest brain-test-lifecycle-rename-retargets-only-clean-buffers ()
+  "The clean buffer follows the rename; point and narrowing are kept (§3).
+\"Update only clean visiting buffers' file identity, retaining point/no display.\""
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/Visited.org")
+           (destination "org-files/Retargeted.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (buffer nil)
+           (point nil))
+      (brain-test--write source-path "* one\n* two\n* three\n")
+      (setq buffer (brain-test--visit source))
+      (with-current-buffer buffer
+        (goto-char (point-min))
+        (forward-line 1)
+        (setq point (point))
+        (should-not (buffer-modified-p)))
+      (should (equal (plist-get (brain-rename-file source destination) :status)
+                     "committed"))
+      (with-current-buffer buffer
+        (should (equal (file-truename (buffer-file-name)) (file-truename destination-path)))
+        (should (= (point) point))
+        (should-not (buffer-modified-p))
+        (should (verify-visited-file-modtime buffer))
+        ;; Still a managed identity: the new path's hooks are in place.
+        (should (equal (brain--buffer-file-id buffer) destination))))))
+
+(ert-deftest brain-test-lifecycle-rename-refuses-an-existing-destination ()
+  "An existing destination is never overwritten (§3)."
+  (brain-test--with-environment
+    (let* ((source "org-files/Source.org")
+           (destination "org-files/Existing.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (result (progn
+                     (brain-test--write source-path "* source\n")
+                     (brain-test--write destination-path "* existing\n")
+                     (brain-rename-file source destination))))
+      (should (equal (plist-get result :status) "attention"))
+      (should (equal (plist-get result :reason) "destination_exists"))
+      (should (equal (brain-test--read-bytes source-path) (brain-test--bytes "* source\n")))
+      (should (equal (brain-test--read-bytes destination-path)
+                     (brain-test--bytes "* existing\n")))
+      (should-not (brain--retired-p source)))))
+
+;;; --- delete ----------------------------------------------------------------
+
+(ert-deftest brain-test-lifecycle-delete-retires-and-preserves-history ()
+  "A guarded delete retires the path and invents no empty revision (§3).
+\"Retire preserves source head/object/history and marks inactive; it does not
+invent an empty Org revision.\""
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/Deleted.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* keep me\n"))
+           (head (plist-get (brain-commit-file
+                             (brain-test--install-spec file-id base "* keep me\n* more\n"))
+                            :new-revision))
+           (operation-id (brain--uuid))
+           (result (brain-delete-file file-id operation-id)))
+      (should (equal (plist-get result :status) "committed"))
+      (should (equal (plist-get result :action) "retire"))
+      (should-not (file-exists-p path))
+      (should (brain--retired-p file-id))
+      ;; The head is the RETAINED one: no revision was invented for the delete.
+      (should (brain--rev-equal (gethash file-id brain--heads) head))
+      ;; History is intact and still readable.
+      (brain-test--history-request file-id -1 50)
+      (should (= (length (alist-get "facts"
+                                    (brain-test--last-payload-of-kind "brain.file.history")
+                                    nil nil #'equal))
+                 2))
+      ;; The bytes are still readable as an immutable object.
+      (should (equal (brain--read-object "mac" (brain--rev-sha head) nil)
+                     (brain-test--bytes "* keep me\n* more\n")))
+      ;; The wire fact is a retire with no destination.
+      (let ((payload (brain-test--last-lifecycle-payload-for file-id)))
+        (should (equal (alist-get "action" payload nil nil #'equal) "retire"))
+        (should (null (alist-get "destination" payload nil nil #'equal)))
+        (should (equal (alist-get "file_id" (alist-get "source" payload nil nil #'equal)
+                                  nil nil #'equal)
+                       file-id))))))
+
+(ert-deftest brain-test-lifecycle-delete-refuses-a-dirty-source ()
+  "A dirty buffer refuses the retirement and keeps its text (§3)."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/KeepDirty.org")
+           (path (brain--file-path file-id))
+           (buffer nil)
+           (result nil))
+      (brain-test--write path "* disk\n")
+      (setq buffer (brain-test--visit file-id))
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (insert "* unsaved\n"))
+      (setq result (brain-delete-file file-id))
+      (should (equal (plist-get result :status) "dirty"))
+      (should (file-exists-p path))
+      (should-not (brain--retired-p file-id))
+      (should (equal (with-current-buffer buffer
+                       (buffer-substring-no-properties (point-min) (point-max)))
+                     "* disk\n* unsaved\n")))))
+
+;;; --- crash recovery --------------------------------------------------------
+
+(ert-deftest brain-test-lifecycle-crash-before-the-atomic-action-is-not-installed ()
+  "A crash between the intent and the rename resolves to \"not installed\" (§3).
+\"old present/new absent => not installed\".  Nothing is guessed and nothing is
+retired: the operation is recorded as aborted and both paths stay as they were."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/CrashSource.org")
+           (destination "org-files/CrashTarget.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (operation-id (brain--uuid))
+           (base (brain-test--enroll source "* crash\n")))
+      ;; Exactly the durable state a crash after the fsynced intent leaves: the
+      ;; intent is journaled, the object is published, the rename never ran.
+      (brain--journal-append "lifecycle_intent"
+                             :operation_id operation-id :action "relocate"
+                             :source_file_id source :source_revision base
+                             :source_hash (brain--sha256-file source-path)
+                             :destination_file_id destination
+                             :destination_predecessor nil
+                             :destination_revision (brain--rev 0 (brain--sha256-file source-path))
+                             :destination_object_hash (brain--sha256-file source-path)
+                             :lifecycle_generation 1
+                             :from_path source-path :to_path destination-path
+                             :reason "rename")
+      (brain-test--restart)
+      (should (file-exists-p source-path))
+      (should-not (file-exists-p destination-path))
+      (should-not (brain--retired-p source))
+      (should-not (gethash destination brain--heads))
+      (should (seq-find (lambda (record)
+                          (and (equal (plist-get record :kind) "lifecycle_aborted")
+                               (equal (plist-get record :operation_id) operation-id)
+                               (equal (plist-get record :reason) "not_installed")))
+                        brain--journal))
+      ;; The operation id answers with what actually happened, not with a new act:
+      ;; recovery recorded that it did not install, so the replay says so.
+      (let ((replay (brain-rename-file source destination operation-id)))
+        (should (equal (plist-get replay :status) "stale"))
+        (should (equal (plist-get replay :reason) "not_installed"))
+        (should (plist-get replay :duplicate)))
+      (should (file-exists-p source-path))
+      (should-not (file-exists-p destination-path)))))
+
+(ert-deftest brain-test-lifecycle-crash-after-the-atomic-action-finishes-the-record ()
+  "A crash between the rename and the record is FINISHED from the journal (§3).
+\"old absent/new equals intended bytes => finish committed record\".  The rename
+already happened, so the record, the retirement and the destination head are all
+restored -- and the recovery is idempotent."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/AfterSource.org")
+           (destination "org-files/AfterTarget.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (operation-id (brain--uuid))
+           (base (brain-test--enroll source "* moved bytes\n"))
+           (digest (brain--sha256-file source-path)))
+      (brain--journal-append "lifecycle_intent"
+                             :operation_id operation-id :action "relocate"
+                             :source_file_id source :source_revision base
+                             :source_hash digest
+                             :destination_file_id destination
+                             :destination_predecessor nil
+                             :destination_revision (brain--rev 0 digest)
+                             :destination_object_hash digest
+                             :lifecycle_generation 1
+                             :from_path source-path :to_path destination-path
+                             :reason "rename")
+      ;; The rename landed; the record did not.
+      (brain--rename-file-primitive source-path destination-path nil)
+      (brain-test--restart)
+      (should-not (file-exists-p source-path))
+      (should (file-exists-p destination-path))
+      (should (brain--retired-p source))
+      (should (brain--rev-equal (gethash destination brain--heads) (brain--rev 0 digest)))
+      (should (brain-test--lifecycle-record-for operation-id))
+      ;; Idempotent: a second recovery does not duplicate the record or the head.
+      (let ((records (length (brain-test--lifecycle-records))))
+        (brain-test--restart)
+        (should (= (length (brain-test--lifecycle-records)) records))
+        (should (brain--rev-equal (gethash destination brain--heads) (brain--rev 0 digest)))))))
+
+(ert-deftest brain-test-lifecycle-crash-with-both-paths-present-is-attention ()
+  "Both paths present after a crash is ATTENTION, never a guessed success (§3).
+\"both present, neither present or unexpected bytes => recovery attention, no
+guessed success.\"  Neither path is retired and no head is invented."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/BothSource.org")
+           (destination "org-files/BothTarget.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (operation-id (brain--uuid))
+           (base (brain-test--enroll source "* source bytes\n"))
+           (digest (brain--sha256-file source-path)))
+      (brain--journal-append "lifecycle_intent"
+                             :operation_id operation-id :action "relocate"
+                             :source_file_id source :source_revision base
+                             :source_hash digest
+                             :destination_file_id destination
+                             :destination_predecessor nil
+                             :destination_revision (brain--rev 0 digest)
+                             :destination_object_hash digest
+                             :lifecycle_generation 1
+                             :from_path source-path :to_path destination-path
+                             :reason "rename")
+      ;; Both exist: a copy landed but the source was never removed.
+      (brain-test--write destination-path "* source bytes\n")
+      (brain-test--restart)
+      (should (file-exists-p source-path))
+      (should (file-exists-p destination-path))
+      (should-not (brain--retired-p source))
+      (should-not (gethash destination brain--heads))
+      (should (equal (gethash source brain--attention) "recovery_mismatch"))
+      (should (seq-find (lambda (record)
+                          (and (equal (plist-get record :kind) "lifecycle_attention")
+                               (equal (plist-get record :operation_id) operation-id)))
+                        brain--journal)))))
+
+(ert-deftest brain-test-lifecycle-crash-with-neither-path-present-is-attention ()
+  "Neither path present after a crash is ATTENTION, never a guessed success (§3).
+\"both present, neither present or unexpected bytes => recovery attention, no
+guessed success.\"  The bytes are gone, so nothing can be finished; the operator
+decides, and no head is invented for either path."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/NeitherSource.org")
+           (destination "org-files/NeitherTarget.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (operation-id (brain--uuid))
+           (base (brain-test--enroll source "* lost bytes\n"))
+           (digest (brain--sha256-file source-path)))
+      (brain--journal-append "lifecycle_intent"
+                             :operation_id operation-id :action "relocate"
+                             :source_file_id source :source_revision base
+                             :source_hash digest
+                             :destination_file_id destination
+                             :destination_predecessor nil
+                             :destination_revision (brain--rev 0 digest)
+                             :destination_object_hash digest
+                             :lifecycle_generation 1
+                             :from_path source-path :to_path destination-path
+                             :reason "rename")
+      ;; Both paths vanished: neither the rename nor its absence is provable.
+      (brain-test--delete source-path)
+      (brain-test--restart)
+      (should-not (file-exists-p source-path))
+      (should-not (file-exists-p destination-path))
+      (should (equal (gethash source brain--attention) "recovery_mismatch"))
+      (should-not (brain--retired-p source))
+      (should-not (gethash destination brain--heads))
+      (should (seq-find (lambda (record)
+                          (and (equal (plist-get record :kind) "lifecycle_attention")
+                               (equal (plist-get record :operation_id) operation-id)))
+                        brain--journal)))))
+
+(ert-deftest brain-test-lifecycle-crash-before-the-unlink-is-retried-under-guards ()
+  "A delete intent whose file is unchanged is retried, not left dangling (§3).
+\"Delete intent with old absent => finish retirement; unchanged old present =>
+not applied/retry with guards.\""
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/RetryDelete.org")
+           (path (brain--file-path file-id))
+           (operation-id (brain--uuid))
+           (base (brain-test--enroll file-id "* delete me\n"))
+           (digest (brain--sha256-file path)))
+      (brain--journal-append "lifecycle_intent"
+                             :operation_id operation-id :action "retire"
+                             :source_file_id file-id :source_revision base
+                             :source_hash digest
+                             :lifecycle_generation 1
+                             :from_path path :reason "delete")
+      (brain-test--restart)
+      (should-not (file-exists-p path))
+      (should (brain--retired-p file-id))
+      (should (brain-test--lifecycle-record-for operation-id)))))
+
+(ert-deftest brain-test-lifecycle-replay-by-operation-id-is-idempotent ()
+  "A duplicate operation id returns the recorded outcome and acts once (§3).
+\"All duplicate operation IDs return recorded outcomes.\""
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/Once.org")
+           (destination "org-files/OnceMoved.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (operation-id (brain--uuid))
+           (_ (brain-test--enroll source "* once\n"))
+           (first (brain-rename-file source destination operation-id))
+           (records (length (brain-test--lifecycle-records)))
+           (second (brain-rename-file source destination operation-id)))
+      (should (equal (plist-get first :status) "committed"))
+      (should (equal (plist-get second :status) "committed"))
+      (should (plist-get second :duplicate))
+      ;; No second action, no second record, no second generation.
+      (should (= (length (brain-test--lifecycle-records)) records))
+      (should (= (plist-get second :lifecycle-generation)
+                 (plist-get first :lifecycle-generation)))
+      (should (file-exists-p destination-path))
+      (should-not (file-exists-p source-path))
+      ;; The same holds for a delete.
+      (let* ((delete-id (brain--uuid))
+             (first-delete (brain-delete-file destination delete-id))
+             (second-delete (brain-delete-file destination delete-id)))
+        (should (equal (plist-get first-delete :status) "committed"))
+        (should (plist-get second-delete :duplicate))
+        (should (= (length (brain-test--lifecycle-records)) (1+ records)))))))
+
+;;; --- no resurrection -------------------------------------------------------
+
+(ert-deftest brain-test-lifecycle-stale-remote-install-cannot-resurrect ()
+  "A remote install matching the old expected revision cannot revive a retired path (§3).
+\"Remote install checks path active/unborn-versus-retired at the Mac final install
+guard; matching an old expected_revision cannot resurrect a retired path.\""
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/Retired.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* base\n"))
+           (_retire (brain-delete-file file-id))
+           (result (brain-commit-file
+                    (brain-test--install-spec file-id base "* resurrected\n"))))
+      (should (equal (plist-get result :status) "attention"))
+      (should (equal (plist-get result :reason) "path_retired"))
+      (should-not (file-exists-p path))
+      (should (brain--retired-p file-id)))))
+
+(ert-deftest brain-test-lifecycle-snapshot-cannot-resurrect-a-retired-path ()
+  "A target snapshot of a recreated retired path is attention, not an enrollment (§3).
+\"Local human recreation reactivates through the guarded save/baseline path, not a
+remote retry.\"  The census must not revive an identity behind the gateway's back."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/Recreated.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* base\n"))
+           (_retire (brain-delete-file file-id))
+           (head (gethash file-id brain--heads)))
+      ;; The human recreated the file with different bytes, out of protocol.
+      (brain-test--write path "* recreated\n")
+      (brain-test--snapshot-request file-id)
+      (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
+        (should (equal (alist-get "result" payload nil nil #'equal) "attention")))
+      (should (equal (brain-test--snapshot-attention-reason file-id) "path_retired"))
+      ;; No new head was allocated and the path is still retired.
+      (should (brain--rev-equal (gethash file-id brain--heads) head))
+      (should (brain--retired-p file-id))
+      ;; The human's own save is what reactivates it, and it resumes the chain.
+      (let ((result (brain-commit-file
+                     (list :file-id file-id :origin "human"
+                           :bytes (brain-test--bytes "* recreated\n")
+                           :expected-revision head
+                           :buffer nil))))
+        (should (equal (plist-get result :status) "committed"))
+        (should-not (brain--retired-p file-id))
+        (should (= (plist-get (gethash file-id brain--heads) :seq) 1))
+        (should (equal (alist-get "action" (brain-test--last-lifecycle-payload-for file-id)
+                                  nil nil #'equal)
+                       "reactivate"))))))
+
+(ert-deftest brain-test-lifecycle-human-recreation-resumes-the-retained-chain ()
+  "A human save of a recreated retired path reactivates it and continues seq (§3).
+The chain is never rewound to 0 and the reactivation is its own lifecycle fact."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/Revived.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* base\n"))
+           (head (plist-get (brain-commit-file
+                             (brain-test--install-spec file-id base "* base\n* second\n"))
+                            :new-revision))
+           (_retire (brain-delete-file file-id)))
+      (should (brain--retired-p file-id))
+      ;; The human recreates the file and saves it through the guard.
+      (brain-test--write path "* base\n* second\n* third\n")
+      (let ((result (brain-commit-file
+                     (list :file-id file-id :origin "human"
+                           :bytes (brain-test--bytes "* base\n* second\n* third\n")
+                           :expected-revision head
+                           :buffer nil))))
+        (should (equal (plist-get result :status) "committed"))
+        (should (= (plist-get (gethash file-id brain--heads) :seq) 2))
+        (should-not (brain--retired-p file-id)))
+      (let ((payload (brain-test--last-lifecycle-payload-for file-id)))
+        (should (equal (alist-get "action" payload nil nil #'equal) "reactivate"))
+        (should (equal (alist-get "file_id"
+                                  (alist-get "destination" payload nil nil #'equal)
+                                  nil nil #'equal)
+                       file-id)))
+      ;; History keeps the whole chain, including the pre-retirement facts.
+      (brain-test--history-request file-id -1 50)
+      (should (equal (mapcar (lambda (fact)
+                               (plist-get (brain--rev<-json
+                                           (alist-get "revision" fact nil nil #'equal))
+                                          :seq))
+                             (alist-get "facts"
+                                        (brain-test--last-payload-of-kind
+                                         "brain.file.history")
+                                        nil nil #'equal))
+                     '(0 1 2))))))
+
+;;; --- missing paths: two complete inventories -------------------------------
+
+(ert-deftest brain-test-lifecycle-one-inventory-never-retires ()
+  "A single complete inventory is not retirement evidence (§3).
+\"Enumeration failure/partial scan/target absent alone cannot retire.\""
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/Missing.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* gone soon\n")))
+      (brain-test--delete path)
+      ;; One complete inventory that lacks the path.
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (should (gethash file-id brain--missing-observations))
+      (should-not (brain--missing-retire-eligible-p file-id))
+      ;; The target recheck answers absent and retires nothing.
+      (brain-test--snapshot-request file-id)
+      (should (equal (alist-get "result" (brain-test--last-payload-of-kind
+                                          "brain.file.snapshot")
+                                nil nil #'equal)
+                     "absent"))
+      (should-not (brain--retired-p file-id))
+      (should (brain--rev-equal (gethash file-id brain--heads) base)))))
+
+(ert-deftest brain-test-lifecycle-two-inventories-retire-a-proven-missing-path ()
+  "Two complete inventories at least 60 s apart may retire a missing path (§3).
+The retirement is journaled with its retained head and its own generation."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/ProvenMissing.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* vanished\n")))
+      (brain-test--delete path)
+      (brain-test--drain-inventory (brain--uuid) 50)
+      ;; The second inventory is 61 s later: the observation list is the durable
+      ;; proof, so the test backdates the first observation rather than sleeping.
+      (let ((observations (gethash file-id brain--missing-observations)))
+        (puthash file-id (list (- (nth 0 observations) 61))
+                 brain--missing-observations))
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (should (brain--missing-retire-eligible-p file-id))
+      (brain-test--snapshot-request file-id)
+      (should (brain--retired-p file-id))
+      (should (brain--rev-equal (gethash file-id brain--heads) base))
+      (let ((record (car (last (brain-test--lifecycle-records)))))
+        (should (equal (plist-get record :action) "retire"))
+        (should (equal (plist-get record :reason) "missing_two_scans"))
+        (should (equal (plist-get record :source_file_id) file-id))
+        (should (brain--rev-equal (plist-get record :source_revision) base))))))
+
+(ert-deftest brain-test-lifecycle-incomplete-inventory-is-not-membership-evidence ()
+  "An incomplete inventory never counts toward a retirement (§3).
+\"Enumeration failure/partial scan ... cannot retire.\"  A missing root makes the
+capture incomplete, so nothing is recorded as absent even though the path is
+genuinely gone."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/Unscanned.org")
+           (path (brain--file-path file-id))
+           (_ (brain-test--enroll file-id "* x\n")))
+      (brain-test--delete path)
+      (let ((saved brain-managed-roots))
+        (unwind-protect
+            (progn
+              (setq brain-managed-roots
+                    (list (cons "org-files" (expand-file-name "absent-root/"
+                                                              brain-test--root))
+                          (cons "org-roam" (expand-file-name "org-roam/" brain-test--root))))
+              (brain-test--drain-inventory (brain--uuid) 50))
+          (setq brain-managed-roots saved)))
+      (should (null (gethash file-id brain--missing-observations)))
+      (should-not (brain--missing-retire-eligible-p file-id)))))
+
+(ert-deftest brain-test-lifecycle-existing-attention-is-not-auto-reconciled ()
+  "An existing attention row blocks a missing-path retirement (§3).
+\"Existing attention NOT auto-reconciled\": a path the writer already flagged is a
+human decision, so two clean inventories must not silently retire it."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/Attended.org")
+           (path (brain--file-path file-id))
+           (_ (brain-test--enroll file-id "* attended\n")))
+      (puthash file-id "disk_mismatch" brain--attention)
+      (brain-test--delete path)
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (let ((observations (gethash file-id brain--missing-observations)))
+        (puthash file-id (list (- (nth 0 observations) 61))
+                 brain--missing-observations))
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (should-not (brain--missing-retire-eligible-p file-id))
+      (brain-test--snapshot-request file-id)
+      (should-not (brain--retired-p file-id))
+      ;; The attention row is still exactly what it was.
+      (should (equal (gethash file-id brain--attention) "disk_mismatch")))))
+
+(ert-deftest brain-test-lifecycle-reappearing-path-voids-its-observations ()
+  "A path that reappears is not missing, so its observations are dropped (§3)."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/BackAgain.org")
+           (path (brain--file-path file-id))
+           (_ (brain-test--enroll file-id "* here\n")))
+      (brain-test--delete path)
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (should (gethash file-id brain--missing-observations))
+      (brain-test--write path "* back\n")
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (should (null (gethash file-id brain--missing-observations))))))
+
+;;; --- the explicit clean disk reconcile -------------------------------------
+
+(ert-deftest brain-test-reconcile-file-requires-the-expected-head-and-hash ()
+  "`brain-reconcile-file' adopts a clean out-of-protocol change, explicitly (§3).
+Both the displayed head and the observed disk hash must still hold; the bytes are
+not rewritten, the history keeps the old object, and the mismatch is cleared by
+the explicit operator action -- not by a scan."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/Reconciled.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* base\n"))
+           (old-object (brain--rev-sha base)))
+      ;; The file changed outside the protocol.
+      (brain-test--write path "* changed outside\n")
+      (let ((disk (brain--sha256-file path)))
+        ;; A stale expected hash is refused.
+        (should (equal (plist-get (brain-reconcile-file file-id base (make-string 64 ?0))
+                                  :reason)
+                       "disk_changed"))
+        ;; A stale expected head is refused.
+        (should (equal (plist-get (brain-reconcile-file file-id nil disk) :status)
+                       "stale"))
+        (let ((result (brain-reconcile-file file-id base disk)))
+          (should (equal (plist-get result :status) "committed"))
+          (should (= (plist-get (plist-get result :new-revision) :seq) 1))
+          (should (equal (plist-get (plist-get result :new-revision) :sha256) disk)))
+        ;; The bytes were not rewritten and both objects are retained.
+        (should (equal (brain-test--read-bytes path) (brain-test--bytes "* changed outside\n")))
+        (should (brain--read-object "mac" old-object nil))
+        (should (brain--read-object "mac" disk nil))
+        ;; History shows the successor, with the old revision as predecessor.
+        (brain-test--history-request file-id -1 50)
+        (let ((facts (alist-get "facts" (brain-test--last-payload-of-kind
+                                         "brain.file.history")
+                                nil nil #'equal)))
+          (should (equal (mapcar (lambda (fact)
+                                   (plist-get (brain--rev<-json
+                                               (alist-get "revision" fact nil nil #'equal))
+                                              :seq))
+                                 facts)
+                         '(0 1))))))))
+
+(ert-deftest brain-test-reconcile-file-refuses-a-dirty-buffer ()
+  "The reconcile command never runs over unsaved text (§3)."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/ReconcileDirty.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* base\n"))
+           (buffer nil)
+           (result nil))
+      (brain-test--write path "* changed\n")
+      (setq buffer (brain-test--visit file-id))
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (insert "* unsaved\n"))
+      (setq result (brain-reconcile-file file-id base (brain--sha256-file path)))
+      (should (equal (plist-get result :status) "dirty"))
+      (should (= (plist-get (gethash file-id brain--heads) :seq) 0))
+      (should (equal (brain-test--read-bytes path) (brain-test--bytes "* changed\n"))))))
+
+;;; --- the wire fact and the feature gate ------------------------------------
+
+(ert-deftest brain-test-lifecycle-event-is-gated-and-flushed-when-corpus-is-live ()
+  "A lifecycle fact is durable even when corpus-v1 is off, and emitted once it is on (§1/§3).
+The node refuses an unnegotiated corpus event and never acks it, so emitting one
+early would spend a durable seq the gateway never sees.  The RECORD is what must
+never be lost; the event is flushed on the first proven-live corpus request."
+  (brain-test--with-environment
+    (let* ((source "org-files/GatedSource.org")
+           (destination "org-files/GatedTarget.org")
+           (_ (brain-test--enroll source "* gated\n")))
+      ;; No corpus request yet: the fact is recorded, nothing is emitted.
+      (should (equal (plist-get (brain-rename-file source destination) :status)
+                     "committed"))
+      (should (brain-test--lifecycle-records))
+      (should (null (brain-test--lifecycle-payloads)))
+      ;; A corpus-mode request proves the feature live and flushes the fact.
+      (brain-test--inventory-request (brain--uuid) nil 50)
+      (should brain--corpus-observed)
+      (let ((payloads (brain-test--lifecycle-payloads)))
+        (should (= (length payloads) 1))
+        (should (equal (alist-get "action" (car payloads) nil nil #'equal) "relocate")))
+      ;; A second corpus request does not duplicate it.
+      (brain-test--inventory-request (brain--uuid) nil 50)
+      (should (= (length (brain-test--lifecycle-payloads)) 1)))))
+
+(ert-deftest brain-test-lifecycle-generation-is-separate-from-revisions ()
+  "The lifecycle generation is a monotonic journal counter, not a revision seq (§3).
+\"Generation is a monotonic Mac journal counter separate from content revision
+sequence, bound to each affected path.\""
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((first "org-files/GenA.org")
+           (second "org-files/GenB.org")
+           (third "org-files/GenC.org")
+           (_ (brain-test--enroll first "* a\n"))
+           (_ (brain-test--enroll second "* b\n"))
+           (_ (brain-test--enroll third "* c\n")))
+      (brain-rename-file first "org-files/GenAMoved.org")
+      (brain-delete-file second)
+      (brain-delete-file third)
+      ;; Three operations, three distinct generations, independent of the fact
+      ;; that every one of these paths is at revision seq 0.
+      (should (equal (mapcar (lambda (record)
+                               (plist-get record :lifecycle_generation))
+                             (brain-test--lifecycle-records))
+                     '(1 2 3)))
+      (should (= (plist-get (gethash first brain--heads) :seq) 0))
+      (should (= (brain-test--lifecycle-generation-for first) 1))
+      (should (= (brain-test--lifecycle-generation-for second) 2))
+      ;; The counter survives a restart, so a generation is never reused.
+      (brain-test--restart)
+      (should (= brain--lifecycle-seq 3))
+      (should (= (brain-test--lifecycle-generation-for third) 3)))))
+
+;;; --- org-roam compatibility ------------------------------------------------
+
+(defun brain-test--assert-roam-follows-a-managed-rename ()
+  "Rename a managed roam file through the real advice and check the index.
+The lifecycle owns the atomic action, so the package's own rename hook must still
+leave the cache on the new path with no question asked."
+  (let* ((source "org-roam/RoamSource.org")
+         (destination "org-roam/RoamTarget.org")
+         (source-path (brain--file-path source))
+         (destination-path (brain--file-path destination))
+         (asked nil))
+    (brain-test--write source-path "#+title: roam source\n* node\n")
+    (let ((buffer (brain-test--visit source)))
+      (with-current-buffer buffer
+        (should (memq #'org-roam-db-autosync--try-update-on-save-h after-save-hook))
+        (org-roam-db-update-file source-path))
+      (should (equal (brain-test--roam-file-title source-path) "roam source"))
+      (setq asked (brain-test--call-without-questions
+                   (lambda () (rename-file source-path destination-path))))
+      (should-not asked)
+      (should (equal (plist-get (brain--resolve destination) :status) "ok"))
+      (should (brain--retired-p source))
+      ;; The cache no longer claims the old path and indexes the new one.
+      (should (null (brain-test--roam-file-title source-path)))
+      (should (equal (brain-test--roam-file-title destination-path) "roam source"))
+      (should (equal (brain-test--roam-db-hash destination-path)
+                     (org-roam-db--file-hash destination-path)))
+      (with-current-buffer buffer
+        (should (equal (file-truename (buffer-file-name))
+                       (file-truename destination-path))))
+      (should (equal (brain-test--read-bytes destination-path)
+                     (brain-test--bytes "#+title: roam source\n* node\n"))))))
+
+(ert-deftest brain-test-lifecycle-org-roam-rename-keeps-the-index ()
+  "org-roam's normal rename works through the lifecycle wrapper (§3).
+Covers the order where autosync is enabled after `brain-enable'."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (brain-test--with-org-roam-autosync
+      (brain-test--assert-roam-follows-a-managed-rename))))
+
+(ert-deftest brain-test-lifecycle-org-roam-rename-under-live-advice-order ()
+  "The same rename under the live advice order: brain's guard outermost (§3).
+That is the order `Emacs.org' produces, and the one where the package's hook must
+be deferred to the durable commit instead of running inside the section."
+  (brain-test--with-live-advice-order
+    (brain-test--negotiate-corpus)
+    (should (eq (car (brain-test--rename-advice-layers)) 'brain-guard-rename-file))
+    (brain-test--assert-roam-follows-a-managed-rename)))
+
+(ert-deftest brain-test-lifecycle-org-roam-delete-clears-the-index ()
+  "org-roam's normal delete retires the path and clears its cache entry (§3)."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (brain-test--with-org-roam-autosync
+      (let* ((file-id "org-roam/RoamDeleted.org")
+             (path (brain--file-path file-id)))
+        (brain-test--write path "#+title: roam deleted\n* node\n")
+        (let ((buffer (brain-test--visit file-id)))
+          (with-current-buffer buffer
+            (org-roam-db-update-file path)))
+        (should (equal (brain-test--roam-file-title path) "roam deleted"))
+        (should-not (brain-test--call-without-questions (lambda () (delete-file path))))
+        (should-not (file-exists-p path))
+        (should (brain--retired-p file-id))
+        (should (null (brain-test--roam-file-title path)))))))
+
+;;; --- the frames the gateway must accept ------------------------------------
+
+(ert-deftest brain-test-e3-emits-the-lifecycle-frames-the-gateway-validates ()
+  "Emit every lifecycle payload E3 can produce and dump it for cross-validation.
+The Mac's own suite cannot prove the reviewed gateway contracts accept these
+payloads; this writes each real payload, exactly as the Mac journals it, to the
+file named by `BRAIN_E3_FRAME_DUMP'.  `tools/validate_mac_frames.py' then
+validates that file with the real E1 contracts, so a `source'/`destination'
+shape the validator refuses cannot pass unnoticed."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((dump (getenv "BRAIN_E3_FRAME_DUMP"))
+           (moved "org-files/FrameMoved.org")
+           (retired "org-files/FrameRetired.org")
+           (revived "org-files/FrameRevived.org")
+           (records nil))
+      ;; relocate: a never-used destination (seq 0).
+      (brain-test--enroll moved "* moved\n")
+      (should (equal (plist-get (brain-rename-file moved "org-files/FrameMovedTo.org")
+                                :status)
+                     "committed"))
+      ;; retire with a retained head.
+      (brain-test--enroll retired "* retired\n")
+      (should (equal (plist-get (brain-delete-file retired) :status) "committed"))
+      ;; reactivate: the human recreation of a retired path.
+      (brain-test--enroll revived "* revived\n")
+      (brain-delete-file revived)
+      (brain-test--write (brain--file-path revived) "* recreated\n")
+      (brain-commit-file (list :file-id revived :origin "human"
+                               :bytes (brain-test--bytes "* recreated\n")
+                               :expected-revision (gethash revived brain--heads)
+                               :buffer nil))
+      (setq records
+            (seq-filter (lambda (record)
+                          (equal (plist-get record :event_kind) "brain.file.lifecycle"))
+                        (brain--journal-records "event")))
+      ;; relocate, retire, retire (the revived fixture) and its reactivation.
+      (should (= (length records) 4))
+      (should (equal (sort (mapcar (lambda (record)
+                                     (alist-get "action"
+                                                (alist-get "payload" (plist-get record :payload)
+                                                           nil nil #'equal)
+                                                nil nil #'equal))
+                                   records)
+                           #'string<)
+                     '("reactivate" "relocate" "retire" "retire")))
+      ;; Every payload is inside the §3 field set.
+      (dolist (record records)
+        (let ((payload (alist-get "payload" (plist-get record :payload) nil nil #'equal)))
+          (should (equal (sort (mapcar #'car payload) #'string<)
+                         '("action" "destination" "lifecycle_generation" "operation_id"
+                           "reason" "source")))))
+      (when dump
+        (with-temp-file dump
+          (setq coding-system-for-write 'utf-8-unix)
+          (dolist (record records)
+            (insert (brain--json-encode
+                     (list (cons "kind" (plist-get record :event_kind))
+                           (cons "payload"
+                                 (alist-get "payload" (plist-get record :payload)
+                                            nil nil #'equal))))
+                    "\n"))))
+        (should (file-exists-p dump)))))
