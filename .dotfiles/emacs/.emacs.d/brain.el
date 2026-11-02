@@ -50,6 +50,22 @@
 (declare-function org-element-property "org-element" (property element))
 (declare-function org-element-type "org-element" (element))
 (declare-function ucs-normalize-NFC-string "ucs-normalize" (string))
+(declare-function org-agenda-files "org" (&optional arg))
+
+;; The Org configuration the query profile exports (§4).  These are declared with
+;; `defvar' so they are SPECIAL variables: `brain' does not `require' Org at load
+;; time (it is loaded by the user's configuration and is inert until configured),
+;; so without the declarations a reference under `lexical-binding' would be a
+;; lexical free variable and a caller's `let'-binding of `org-todo-keywords' would
+;; silently not be seen.  `defvar' with no value only marks the symbol special; it
+;; does not define or override Org's own default, which is why this is safe even
+;; when Org is loaded later.
+(defvar org-todo-keywords)
+(defvar org-agenda-files)
+(defvar org-agenda-start-on-weekday)
+(defvar org-deadline-warning-days)
+(defvar calendar-week-start-day)
+(defvar org-done-keywords)
 
 (defgroup brain nil
   "Mac-serialized canonical Org commits for Brain v1."
@@ -248,6 +264,98 @@ here instead of being dropped: it is durable in the journal, visible in
       (ucs-normalize-NFC-string string)
     string))
 
+;;; ---------------------------------------------------------------------------
+;;; Unicode case folding (design t_c52859ca v2 §3)
+;;; ---------------------------------------------------------------------------
+;;
+;; §3 requires the alias key to be "NFC plus Unicode casefold, identical
+;; cross-language fixtures".  This Emacs has no casefold primitive -- measured on
+;; the target build: `string-casefold', `casefold' and
+;; `ucs-normalize-CaseFold-string' are all unbound, and no `casefold' appears in
+;; the installed Lisp tree -- and `downcase' is NOT a substitute.  Measured over
+;; all 136,189 code points that are letters or have a case mapping, `downcase'
+;; differs from Unicode casefold on 298 of them: `ß' does not become `ss', `ς'
+;; does not become `σ', `ﬁ' does not become `fi', `µ' does not become `μ', and
+;; the Cherokee lowercase block does not fold to the uppercase block.  A
+;; downcase-only Mac would therefore disagree with the Python store's
+;; `str.casefold()' on real, non-ASCII note names.
+;;
+;; `brain--casefold-table' is generated, never hand-written:
+;; `tools/gen_casefold.py' measures this exact Emacs and emits one entry for
+;; every code point whose `downcase' is not its casefold, asserting that
+;; `table-or-downcase == casefold' for every measured code point before writing.
+;; Regenerate it when the Emacs build changes; a stale table can only ever be
+;; too small, and the cross-language fixture test fails loudly when it is.
+;;
+;; Folding is applied PER CHARACTER, never over a whole string: Emacs `downcase'
+;; is context-sensitive for final sigma ("ΣΟΦΟΣ" -> "σοφος" with a final ς),
+;; while casefold is not, so a whole-string `downcase' would fold "ΣΟΦΟΣ" and
+;; "σοφοσ" to different keys.
+
+(defconst brain--casefold-table
+  (let ((table (make-hash-table :test #'eql)))
+    (dolist (cell '((#x00B5 . "μ") (#x00DF . "ss") (#x0149 . "ʼn") (#x017F . "s")
+                    (#x01F0 . "ǰ") (#x0345 . "ι") (#x0390 . "ΐ") (#x03B0 . "ΰ")
+                    (#x03C2 . "σ") (#x03D0 . "β") (#x03D1 . "θ") (#x03D5 . "φ")
+                    (#x03D6 . "π") (#x03F0 . "κ") (#x03F1 . "ρ") (#x03F5 . "ε")
+                    (#x0587 . "եւ") (#x13F8 . "Ꭰ") (#x13F9 . "Ꭱ") (#x13FA . "Ꭲ")
+                    (#x13FB . "Ꭳ") (#x13FC . "Ꭴ") (#x13FD . "Ꭵ") (#x1C80 . "в")
+                    (#x1C81 . "д") (#x1C82 . "о") (#x1C83 . "с") (#x1C84 . "т")
+                    (#x1C85 . "т") (#x1C86 . "ъ") (#x1C87 . "ѣ") (#x1C88 . "ꙋ")
+                    (#x1E96 . "ẖ") (#x1E97 . "ẗ") (#x1E98 . "ẘ") (#x1E99 . "ẙ")
+                    (#x1E9A . "aʾ") (#x1E9B . "ṡ") (#x1E9E . "ss") (#x1F50 . "ὐ")
+                    (#x1F52 . "ὒ") (#x1F54 . "ὔ") (#x1F56 . "ὖ")
+                    (#x1F80 . "ἀι") (#x1F81 . "ἁι") (#x1F82 . "ἂι") (#x1F83 . "ἃι")
+                    (#x1F84 . "ἄι") (#x1F85 . "ἅι") (#x1F86 . "ἆι") (#x1F87 . "ἇι")
+                    (#x1F88 . "ἀι") (#x1F89 . "ἁι") (#x1F8A . "ἂι") (#x1F8B . "ἃι")
+                    (#x1F8C . "ἄι") (#x1F8D . "ἅι") (#x1F8E . "ἆι") (#x1F8F . "ἇι")
+                    (#x1F90 . "ἠι") (#x1F91 . "ἡι") (#x1F92 . "ἢι") (#x1F93 . "ἣι")
+                    (#x1F94 . "ἤι") (#x1F95 . "ἥι") (#x1F96 . "ἦι") (#x1F97 . "ἧι")
+                    (#x1F98 . "ἠι") (#x1F99 . "ἡι") (#x1F9A . "ἢι") (#x1F9B . "ἣι")
+                    (#x1F9C . "ἤι") (#x1F9D . "ἥι") (#x1F9E . "ἦι") (#x1F9F . "ἧι")
+                    (#x1FA0 . "ὠι") (#x1FA1 . "ὡι") (#x1FA2 . "ὢι") (#x1FA3 . "ὣι")
+                    (#x1FA4 . "ὤι") (#x1FA5 . "ὥι") (#x1FA6 . "ὦι") (#x1FA7 . "ὧι")
+                    (#x1FA8 . "ὠι") (#x1FA9 . "ὡι") (#x1FAA . "ὢι") (#x1FAB . "ὣι")
+                    (#x1FAC . "ὤι") (#x1FAD . "ὥι") (#x1FAE . "ὦι") (#x1FAF . "ὧι")
+                    (#x1FB2 . "ὰι") (#x1FB3 . "αι") (#x1FB4 . "άι") (#x1FB6 . "ᾶ")
+                    (#x1FB7 . "ᾶι") (#x1FBC . "αι") (#x1FBE . "ι") (#x1FC2 . "ὴι")
+                    (#x1FC3 . "ηι") (#x1FC4 . "ήι") (#x1FC6 . "ῆ") (#x1FC7 . "ῆι")
+                    (#x1FCC . "ηι") (#x1FD2 . "ῒ") (#x1FD3 . "ΐ") (#x1FD6 . "ῖ")
+                    (#x1FD7 . "ῗ") (#x1FE2 . "ῢ") (#x1FE3 . "ΰ") (#x1FE4 . "ῤ")
+                    (#x1FE6 . "ῦ") (#x1FE7 . "ῧ") (#x1FF2 . "ὼι") (#x1FF3 . "ωι")
+                    (#x1FF4 . "ώι") (#x1FF6 . "ῶ") (#x1FF7 . "ῶι") (#x1FFC . "ωι")
+                    (#x212A . "k") (#xFB00 . "ff") (#xFB01 . "fi") (#xFB02 . "fl")
+                    (#xFB03 . "ffi") (#xFB04 . "ffl") (#xFB05 . "st") (#xFB06 . "st")
+                    (#xFB13 . "մն") (#xFB14 . "մե") (#xFB15 . "մի") (#xFB16 . "վն")
+                    (#xFB17 . "մխ")))
+      (puthash (car cell) (cdr cell) table))
+    ;; The Cherokee lowercase block folds to the uppercase block, one to one.
+    (let ((small #xAB70) (capital #x13A0))
+      (while (<= small #xABBF)
+        (puthash small (string capital) table)
+        (setq small (1+ small) capital (1+ capital))))
+    table)
+  "Code point -> its Unicode casefold, for the code points `downcase' gets wrong.
+Generated by `tools/gen_casefold.py' against this Emacs build; see the comment
+above for why a table is needed at all.")
+
+(defun brain--casefold (string)
+  "Return STRING folded with Unicode casefold, per character. This is the Mac
+  half of the one alias-key definition in design §3; the Python half is
+  `str.casefold()' and `tests/fixtures/eligibility.json' pins the keys both
+  must produce.  `downcase' is applied per character on purpose: its
+  final-sigma rule is context-sensitive, while casefold is not."
+  (if (not (multibyte-string-p string))
+      string
+    (let ((out nil) (index 0) (length (length string)))
+      (while (< index length)
+        (let* ((character (aref string index))
+               (special (and (> character 127)
+                             (gethash character brain--casefold-table))))
+          (push (or special (downcase (string character))) out))
+        (setq index (1+ index)))
+      (apply #'concat (nreverse out)))))
+
 (defun brain--uuid ()
   "Return a fresh UUID string (version 4 shaped)."
   (let ((hex (secure-hash 'sha256 (format "%s/%s/%s/%s" (float-time) (emacs-pid)
@@ -423,24 +531,104 @@ one file for one digest or Syncthing delivers bytes neither side can read."
   (let ((cell (assoc root brain-managed-roots)))
     (when cell (file-name-as-directory (expand-file-name (cdr cell))))))
 
+;;; ---------------------------------------------------------------------------
+;;; The one eligibility predicate (design t_c52859ca v2 §3)
+;;; ---------------------------------------------------------------------------
+;;
+;; §3 requires "one documented eligibility predicate ... implemented equivalently
+;; on both sides and tested with shared fixtures", with "authoritative filesystem
+;; enforcement ... at Mac snapshot/commit/lifecycle use, not the earlier listing".
+;; So this function is PURE: it decides from the identity text alone and touches
+;; no filesystem.  Whether the path is really a regular non-symlink UTF-8 file is
+;; a separate fact, checked at actual use (`brain--resolve' lstats every
+;; component; the census skips symlinks and non-regular entries as it walks).
+;;
+;; The category vocabulary is the cross-language contract, and
+;; `tests/fixtures/eligibility.json' pins every case.  A Python exception type or
+;; message is explicitly NOT part of it: E4 reports the same category strings.
+;;
+;; Precedence is part of the contract, because one path can match several classes
+;; (`.git/x.org~' is both an excluded directory and a backup).  The order below is
+;; the documented one and the fixture pins it: the more specific structural
+;; refusal wins over the more general one, and the root is decided before the
+;; segments.  Nothing here is a heuristic: every class is an explicit name or
+;; extension rule from §3, and §3 forbids excluding names merely because they
+;; contain "test", "temp" or "latex".
+
+(defconst brain--excluded-directories
+  '(".git" ".hg" ".svn" ".cache" ".trash" "tmp" "temp" "build" "dist"
+    "generated" "exports" "auto-save-list")
+  "Directory names §3 excludes at any depth.  Compared exactly, never by prefix.")
+
+(defconst brain--swap-suffixes '(".swp" ".swo")
+  "Editor swap suffixes §3 excludes.")
+
+(defun brain--eligibility (root relative)
+  "Return nil when ROOT/RELATIVE is eligible, else a refusal category.
+  Categories, in precedence order: unknown_root, absolute, backslash,
+  sync_conflict, dot_hash, hash_bracket, backup_tilde, swap, not_org,
+  excluded_directory, traversal, empty_segment, control, segment_too_long,
+  path_too_long, not_nfc. The value is a string from that closed vocabulary;
+  the same strings are what the Python side reports, so a test can compare two
+  implementations without comparing two languages' exception types.
+
+  The structural name classes come BEFORE the extension check on purpose:
+  `#x.org#' is an auto-save file and `x.org~' is a backup, and neither ends in
+  `.org' -- so an extension-first order would report them as merely \"not an
+  Org file\" and lose the fact that matters.  The extension check then catches
+  everything else that is simply not Org."
+  (let ((segments (and (stringp relative) (split-string relative "/"))))
+    (cond
+     ((not (member root '("org-files" "org-roam"))) "unknown_root")
+     ((not (stringp relative)) "empty_segment")
+     ((string-prefix-p "/" relative) "absolute")
+     ((string-search "\\" relative) "backslash")
+     ((string-search ".sync-conflict-" relative) "sync_conflict")
+     ;; A component that starts with ".#" is an Emacs lock file.
+     ((seq-find (lambda (segment) (string-prefix-p ".#" segment)) segments) "dot_hash")
+     ;; A component enclosed in "#" is an auto-save file.
+     ((seq-find (lambda (segment)
+                  (and (> (length segment) 1)
+                       (string-prefix-p "#" segment)
+                       (string-suffix-p "#" segment)))
+                segments)
+      "hash_bracket")
+     ((seq-find (lambda (segment) (string-suffix-p "~" segment)) segments) "backup_tilde")
+     ((seq-find (lambda (segment)
+                  (seq-find (lambda (suffix) (string-suffix-p suffix segment))
+                            brain--swap-suffixes))
+                segments)
+      "swap")
+     ((not (string-suffix-p ".org" relative)) "not_org")
+     ;; Only DIRECTORY components count: a file legitimately named "build.org" is
+     ;; not inside a "build" directory.  The last segment is the file itself.
+     ((seq-find (lambda (segment) (member segment brain--excluded-directories))
+                (butlast segments))
+      "excluded_directory")
+     ((seq-find (lambda (segment) (member segment '("." ".."))) segments) "traversal")
+     ((seq-find #'string-empty-p segments) "empty_segment")
+     ((seq-find (lambda (segment)
+                  (seq-find (lambda (character) (or (< character 32) (= character 127)))
+                            segment))
+                segments)
+      "control")
+     ((seq-find (lambda (segment) (> (length segment) 255)) segments) "segment_too_long")
+     ((> (length relative) 1024) "path_too_long")
+     ((not (string= (brain--nfc relative) relative)) "not_nfc")
+     (t nil))))
+
+(defun brain--eligible-p (root relative)
+  "Non-nil when ROOT/RELATIVE is eligible.  See `brain--eligibility'."
+  (null (brain--eligibility root relative)))
+
 (defun brain--check-relative-path (relative)
-  "Signal `brain-invalid-path' unless RELATIVE is an admissible relative path."
-  (when (or (not (stringp relative))
-            (string-empty-p relative)
-            (> (length relative) 1024)
-            (string-prefix-p "/" relative)
-            (string-search "\\" relative)
-            (string-search ".sync-conflict-" relative)
-            (not (string-suffix-p ".org" relative))
-            (not (string= (brain--nfc relative) relative)))
-    (signal 'brain-invalid-path (list relative)))
-  (dolist (segment (split-string relative "/"))
-    (when (or (string-empty-p segment)
-              (member segment '("." ".."))
-              (> (length segment) 255)
-              (seq-find (lambda (character) (or (< character 32) (= character 127)))
-                        segment))
-      (signal 'brain-invalid-path (list relative))))
+  "Signal `brain-invalid-path' unless RELATIVE is an admissible relative path.
+This is the identity guard every existing caller already used; it now delegates
+the decision to the one predicate, so a path cannot be admissible here and
+ineligible there."
+  (let ((category (brain--eligibility "org-files" relative)))
+    (when category
+      (signal 'brain-invalid-path (list relative category))))
   relative)
 
 (defun brain--make-file-id (root relative)
@@ -459,9 +647,14 @@ one file for one digest or Syncthing delivers bytes neither side can read."
     (cons root relative)))
 
 (defun brain--alias-key (file-id)
-  "Case-folded alias key of FILE-ID, used to refuse collapsing identities."
+  "Case-folded alias key of FILE-ID, to refuse collapsing identities. The key is
+  NFC plus Unicode casefold (§3), the same definition the Python store uses for
+  `files.alias_key'.  It was `downcase' before E2, which is a different
+  function on 298 code points: two paths that the store collapses (`Straße.org'
+  and `STRASSE.org') did not collapse here, so the Mac would accept an identity
+  the gateway then refuses."
   (let* ((split (brain--split-file-id file-id)))
-    (concat (car split) "/" (downcase (brain--nfc (cdr split))))))
+    (concat (car split) "/" (brain--casefold (brain--nfc (cdr split))))))
 
 (defun brain--register-identity (file-id)
   "Register FILE-ID, refusing an alias of a different identity."
@@ -1700,13 +1893,25 @@ test."
                             :sentinel #'brain--ipc-sentinel :noquery t))
         (error (brain--log "ipc connect failed: %S" err) nil))))))
 
+(defconst brain--corpus-feature "corpus-v1"
+  "The additive corpus feature this client advertises (design t_c52859ca v2 §1).
+Pinned to the gateway's `contracts.CORPUS_FEATURE' and the node's
+`BrainIPCServer.corpusFeature' by a test; the wire stays Brain v1, and the
+feature is live only when all three endpoints advertise it.")
+
 (defun brain--subscribe ()
   (when (brain--ipc-connect)
     (setq brain--epoch (1+ brain--epoch)
           brain--client-epoch (or brain--client-epoch (brain--uuid)))
+    ;; The third advertisement of the three-way agreement (§1). The node relays
+    ;; this list upstream on `device.heartbeat', because the gateway cannot see
+    ;; `brain.subscribe' itself. An old node ignores the field; an old client
+    ;; omits it, which is what keeps the extension off for a mixed pair.
     (brain--ipc-send (list (cons "v" brain-protocol-version)
                            (cons "type" "brain.subscribe")
-                           (cons "client_epoch" brain--client-epoch)))))
+                           (cons "client_epoch" brain--client-epoch)
+                           (cons "corpus_features"
+                                 (cons :json-array (list brain--corpus-feature)))))))
 
 (defun brain--announce-ready ()
   "Report reconciliation to the node, which then allows install routing."
@@ -1716,6 +1921,10 @@ test."
                                     (cons "client_epoch" brain--client-epoch))))
     (setq brain--reconciled t)
     (brain--emit-event "emacs.online" (list (cons "epoch" (max 1 brain--epoch))))
+    ;; §4: the profile is emitted "after readiness and on relevant configuration
+    ;; change". Readiness is exactly here, so a reconnecting client re-publishes
+    ;; its configuration instead of leaving the gateway on a stale one.
+    (brain--emit-query-profile)
     (brain--pump-outbox)
     t))
 
@@ -1887,20 +2096,269 @@ keyboard."
       (brain--log "stream replay request received")))))
 
 ;;; ---------------------------------------------------------------------------
-;;; Snapshots and inventory
+;;; Snapshots and inventory (design t_c52859ca v2 §2)
 ;;; ---------------------------------------------------------------------------
+;;
+;; The legacy shapes are untouched: a target request is still `{file_id}` and a
+;; legacy page is still `{limit[, after_file_id]}` with limit 1..100, and
+;; `brain--snapshot-page' keeps its first-next `continuation' semantics exactly.
+;; §1 forbids silently changing old page interpretation, so the legacy page is
+;; left byte-for-byte as it was and the new capture lives beside it.
+;;
+;; The corpus shapes are additive and disjoint (`mode` is a new field, so no frame
+;; can be read as both):
+;;
+;;   inventory page  {mode:"inventory", inventory_id, after_file_id|null, limit 1..50}
+;;   history page    {mode:"history", file_id, after_revision_seq:-1|seq, limit 1..50}
+;;
+;; The inventory is a CAPTURE, not a transaction: one `inventory_id' names one
+;; immutable sorted PATH LIST (plus each path's head at capture time), and pages
+;; are slices of that saved list.  It is deliberately not a frozen view of file
+;; CONTENTS -- §2 says so -- so a file edited between pages still appears once and
+;; its head is re-read when its target is requested.  Re-walking the disk per page
+;; (what the legacy page does) cannot satisfy "stable capture amidst new files": a
+;; file created between pages would shift every later slice, and a file deleted
+;; between pages would silently vanish from the enumeration, which is exactly the
+;; "page end is not deletion" hazard §2 forbids.
 
-(defun brain--handle-snapshot-request (frame)
-  (let ((request-id (alist-get "request_id" frame nil nil #'equal))
-        (file-id (alist-get "file_id" frame nil nil #'equal))
-        (limit (alist-get "limit" frame nil nil #'equal))
-        (after (alist-get "after_file_id" frame nil nil #'equal)))
+(defcustom brain-inventory-max-paths 10000
+  "Maximum paths one captured inventory may hold (§2: at most 10,000)."
+  :type 'integer)
+
+(defcustom brain-inventory-max-bytes (* 8 1024 1024)
+  "Maximum serialised size of one captured inventory's metadata (§2: 8 MiB)."
+  :type 'integer)
+
+(defcustom brain-inventory-ttl 86400
+  "Seconds an unused capture stays valid (§2: expire after 24 hours)."
+  :type 'integer)
+
+(defcustom brain-inventory-slice-entries 50
+  "Maximum entries one traversal slice may visit (§2: at most 50)."
+  :type 'integer)
+
+(defcustom brain-inventory-slice-seconds 0.02
+  "Maximum seconds one traversal slice may run (§2: at most 20 ms)."
+  :type 'number)
+
+(defvar brain--inventories (make-hash-table :test #'equal)
+  "inventory_id -> capture plist.  See `brain--inventory-capture'.")
+
+(defvar brain--inventory-order nil
+  "Capture ids, oldest first, so expiry can drop the least recently used.")
+
+;; --- enumeration ------------------------------------------------------------
+;;
+;; The walk is resumable, because §2 bounds it to "regular timer slices (at most
+;; 50 entries or 20 ms of traversal per slice)".  Its whole state is one plist, so
+;; a slice can stop anywhere and the next request continues from exactly there:
+;;
+;;   :stack  pending directory frames, innermost first
+;;   :found  relative paths of eligible regular files, reversed
+;;
+;; A frame is (:directory DIR :root ROOT :relative REL :read BOOL :entries NAMES).
+;; `:read' is what distinguishes "this directory has not been listed yet" from
+;; "this directory was listed and is empty" -- with only `:entries', an empty
+;; directory is indistinguishable from an unvisited one and the walk re-reads it
+;; forever.  Excluded directories are never pushed, so a `.git' tree costs one
+;; `lstat', not a walk.
+
+(defvar brain--inventory-walk nil
+  "Resumable walk state: (:stack FRAMES :found PATHS) or nil.")
+
+(defun brain--inventory-walk-start ()
+  "Reset the walk to the managed roots and return its state."
+  (setq brain--inventory-walk
+        (list :stack (mapcar (lambda (entry)
+                               (list :directory (file-name-as-directory
+                                                 (expand-file-name (cdr entry)))
+                                     :root (car entry) :relative "" :read nil
+                                     :entries nil))
+                             brain-managed-roots)
+              :found nil))
+  brain--inventory-walk)
+
+(defun brain--directory-entries (directory)
+  "Return (NAMES . ERROR) for DIRECTORY, without descending into it.
+NAMES is every entry name except `.` and `..`, or nil when the directory cannot
+be read; ERROR is a short reason string or nil.  `directory-files' signals on an
+unreadable directory, and §2 requires that to be an explicit incomplete capture
+rather than an empty one."
+  (condition-case err
+      (cons (directory-files directory nil "\\`[^.]" t) nil)
+    (file-error (cons nil (format "unreadable_directory:%s" (car err))))
+    (error (cons nil (format "enumeration_error:%s" (car err))))))
+
+(defun brain--inventory-walk-step ()
+  "Run one bounded traversal slice.  Returns nil when finished, else a reason.
+A missing root is an explicit incomplete capture (§2: \"Missing/inaccessible
+root ... are complete=false with a reason; never equivalent to empty\")."
+  (let ((deadline (time-add (current-time) brain-inventory-slice-seconds))
+        (budget brain-inventory-slice-entries)
+        (stack (plist-get brain--inventory-walk :stack))
+        (found (plist-get brain--inventory-walk :found))
+        (stopped nil))
+    (while (and stack (not stopped))
+      (let* ((frame (car stack))
+             (directory (plist-get frame :directory))
+             (root (plist-get frame :root))
+             (relative (plist-get frame :relative)))
+        (cond
+         ;; A root that is not a directory at all is a missing root, not empty.
+         ((and (string-empty-p relative) (not (file-directory-p directory)))
+          (setq stopped "missing_root")
+          (setq stack nil))
+         ;; Not listed yet: list it and remember that it was listed.
+         ((not (plist-get frame :read))
+          (let ((probe (brain--directory-entries directory)))
+            (if (cdr probe)
+                (progn (setq stopped (cdr probe)) (setq stack nil))
+              (setcar stack (plist-put (plist-put frame :entries (car probe))
+                                       :read t)))))
+         ;; Listed and exhausted: this directory is done.
+         ((null (plist-get frame :entries))
+          (setq stack (cdr stack)))
+         (t
+          (let* ((name (car (plist-get frame :entries)))
+                 (child-relative (if (string-empty-p relative)
+                                     name
+                                     (concat relative "/" name)))
+                 (child (expand-file-name name directory)))
+            (setcar stack (plist-put frame :entries (cdr (plist-get frame :entries))))
+            (setq budget (1- budget))
+            (cond
+             ;; A symlink is never followed and never enrolled (§2/§3).
+             ((file-symlink-p child) nil)
+             ((file-directory-p child)
+              (unless (member name brain--excluded-directories)
+                (push (list :directory child :root root :relative child-relative
+                            :read nil :entries nil)
+                      stack)))
+             ((file-regular-p child)
+              (unless (brain--eligibility root child-relative)
+                ;; The capture stores full identities (root/relative), not bare
+                ;; relative paths: `file_id' is the path identity (§3), and every
+                ;; consumer -- paging, alias keys, heads -- works on that form.
+                (push (concat root "/" child-relative) found)))
+             (t nil))))))
+      (when (and (null stopped)
+                 (or (<= budget 0) (time-less-p deadline (current-time))))
+        (setq stopped "slice_budget")))
+    (setq brain--inventory-walk (list :stack stack :found found))
+    stopped))
+
+;; --- capture ----------------------------------------------------------------
+
+(defun brain--inventory-expired-p (capture)
+  "Non-nil when CAPTURE has not been used for `brain-inventory-ttl' seconds.
+Expiry is measured from last use, so a long walk is never expired mid-flight by
+its own duration; only an abandoned capture ages out."
+  (and (numberp (plist-get capture :used))
+       (> (- (float-time) (plist-get capture :used)) brain-inventory-ttl)))
+
+(defun brain--inventory-expire-others ()
+  "Drop every capture that has aged out.  Bounded by the number of captures."
+  (let ((keep nil))
+    (dolist (id brain--inventory-order)
+      (let ((capture (gethash id brain--inventories)))
+        (cond
+         ((null capture) nil)
+         ((brain--inventory-expired-p capture) (remhash id brain--inventories))
+         (t (push id keep)))))
+    (setq brain--inventory-order (nreverse keep))))
+
+(defun brain--inventory-capture (inventory-id)
+  "Return the live capture for INVENTORY-ID, starting one when it is unknown.
+The capture is created on the FIRST page request and stored Mac-locally (§2:
+\"A captured list persists Mac-locally across page retries\").  A capture that is
+still walking is resumed by the next page request rather than restarted, so a
+large corpus is enumerated in bounded slices across several requests."
+  (let ((capture (gethash inventory-id brain--inventories)))
     (cond
-     ((not (brain--frame-brain-id-ok-p frame))
-      (brain--log "snapshot request for a foreign brain id refused"))
-     (file-id (brain--snapshot-target request-id file-id))
-     (limit (brain--snapshot-page request-id after limit))
-     (t (brain--log "snapshot request without target or page")))))
+     ((and capture (brain--inventory-expired-p capture))
+      (remhash inventory-id brain--inventories)
+      (setq brain--inventory-order (delete inventory-id brain--inventory-order))
+      (list :status "expired" :inventory-id inventory-id))
+     (capture capture)
+     (t
+      (let ((fresh (list :status "walking" :inventory-id inventory-id
+                         :created (float-time) :used (float-time)
+                         :paths nil :reason nil :bytes 0)))
+        (puthash inventory-id fresh brain--inventories)
+        (setq brain--inventory-order
+              (append brain--inventory-order (list inventory-id)))
+        (brain--inventory-expire-others)
+        (brain--inventory-walk-start)
+        fresh)))))
+
+(defun brain--inventory-finish (capture)
+  "Finish CAPTURE: sort, dedupe, alias-check and bound its paths. Returns the
+  updated capture.  §2: \"publishes no completed list until traversal and alias
+  validation finish\", so this is the only place a capture becomes `complete'.
+  A capture that fails a bound or the alias check keeps its paths for diagnosis
+  but reports `paths' as nil, so no page can publish a partial list that a
+  consumer could read as retirement for everything it omits."
+  (let* ((paths (sort (delete-dups (plist-get capture :paths)) #'string<))
+         (count (length paths))
+         (bytes 0)
+         (alias (make-hash-table :test #'equal))
+         (reason nil))
+    (cond
+     ((> count brain-inventory-max-paths)
+      (setq reason "inventory_oversize"))
+     (t
+      (dolist (path paths)
+        (setq bytes (+ bytes (length path)))
+        (when (> bytes brain-inventory-max-bytes)
+          (setq reason "inventory_oversize")))
+      (unless reason
+        ;; Alias validation: two spellings that one case-insensitive volume would
+        ;; collapse are an explicit ambiguity, never a silent pick (§3).
+        (let ((collision nil))
+          (dolist (path paths)
+            (unless collision
+              (let ((key (brain--alias-key path))
+                    (known (gethash (brain--alias-key path) alias)))
+                (cond
+                 ((null known) (puthash key path alias))
+                 ((not (equal known path)) (setq collision (list known path)))))))
+          (when collision (setq reason "alias_ambiguity"))))))
+    (plist-put (plist-put (plist-put capture :paths (unless reason paths)) :bytes bytes)
+               :reason reason)))
+
+(defun brain--inventory-ready-p (capture)
+  "Non-nil when CAPTURE has finished walking and its list is validated."
+  (and capture (member (plist-get capture :status) '("complete" "incomplete"))))
+
+(defun brain--inventory-advance (capture)
+  "Run one traversal slice for CAPTURE and return it, possibly finished."
+  (unless (brain--inventory-ready-p capture)
+    (let ((stopped (brain--inventory-walk-step)))
+      (cond
+       ((equal stopped "slice_budget")
+        ;; Still walking: the next page request resumes exactly here.
+        (setq capture (plist-put capture :used (float-time))))
+       (stopped
+        ;; An enumeration failure is complete=false with a reason, never empty.
+        (setq capture (plist-put (plist-put (plist-put capture :paths
+                                                       (plist-get brain--inventory-walk :found))
+                                            :status "incomplete")
+                                 :reason stopped)))
+       (t
+        (setq capture (plist-put capture :paths
+                                 (plist-get brain--inventory-walk :found)))
+        (setq capture (brain--inventory-finish capture))
+        (setq capture (plist-put capture :status
+                                 (if (plist-get capture :reason) "incomplete"
+                                   "complete"))))))
+    (puthash (plist-get capture :inventory-id) capture brain--inventories))
+  capture)
+
+;; --- the legacy shapes, byte-for-byte unchanged ------------------------------
+;;
+;; §1: "No fix silently changes old page interpretation."  These three functions
+;; are exactly the accepted bytes from the live module; the corpus capture is a
+;; separate path below and never reinterprets them.
 
 (defun brain--snapshot-event (request-id file-id result &optional extra done)
   (brain--emit-event
@@ -1910,46 +2368,6 @@ keyboard."
                  (cons "result" result))
            extra
            (list (cons "done" (if done t :false))))))
-
-(defun brain--snapshot-target (request-id file-id)
-  "Answer one target snapshot without opening or touching a visiting buffer."
-  (let* ((resolution (brain--resolve file-id))
-         (path (plist-get resolution :path))
-         (head (gethash file-id brain--heads))
-         (lease (gethash file-id brain--dirty)))
-    (cond
-     ((equal (plist-get resolution :status) "unsafe")
-      (brain--snapshot-event request-id file-id "attention"
-                             (list (cons "continuation" :null)) t))
-     ((equal (plist-get resolution :status) "absent")
-      (if lease
-          (brain--snapshot-event request-id file-id "attention"
-                                 (list (cons "dirty_generation"
-                                             (plist-get lease :generation)))
-                                 t)
-        (brain--snapshot-event request-id file-id "absent" nil t)))
-     ((and lease (null head))
-      (brain--snapshot-event request-id file-id "attention"
-                             (list (cons "dirty_generation" (plist-get lease :generation)))
-                             t))
-     (t
-      (let ((digest (brain--sha256-file path)))
-        (cond
-         ((and head (not (equal digest (brain--rev-sha head))))
-          (brain--snapshot-event request-id file-id "attention"
-                                 (list (cons "revision" (brain--rev->json head))
-                                       (cons "object_hash" (brain--rev-sha head))
-                                       (cons "dirty_generation"
-                                             (and lease (plist-get lease :generation))))
-                                 t))
-         (t
-          (let ((revision (if head head (brain--enroll-baseline file-id path digest))))
-            (brain--snapshot-event
-             request-id file-id "present"
-             (list (cons "revision" (brain--rev->json revision))
-                   (cons "object_hash" (brain--rev-sha revision))
-                   (cons "dirty_generation" (and lease (plist-get lease :generation))))
-             t)))))))))
 
 (defun brain--eligible-file-ids ()
   "Every regular `.org' file beneath the managed roots, lexicographically sorted."
@@ -1982,6 +2400,433 @@ keyboard."
                                nil)))
     (brain--snapshot-event request-id last-id "absent"
                            (list (cons "continuation" (or (car more) :null))) t)))
+
+;; --- target baseline: the actual-use guards (§2) -----------------------------
+;;
+;; §2: "Mac target snapshot enrollment MUST reuse the canonical writer's
+;; actual-use safety guard: resolve/check all path components and opened bytes,
+;; register/check aliases, check ALL modified visiting/indirect buffers, leases,
+;; autosave/recovery markers, encoding and journal state; no yield between final
+;; check and baseline journaling/publication.  Publish only saved exact UTF-8
+;; bytes."
+;;
+;; The accepted live `brain--snapshot-target' checked only the lease.  The facts
+;; it did NOT check are exactly the ones that make bulk enrollment unsafe:
+;;
+;;   * `brain--resolve' lstats every component (already used) -- kept;
+;;   * a modified visiting buffer with NO lease.  A lease is journaled on the
+;;     first edit, but a buffer can be modified before Brain enabled, or by a
+;;     mode/hook that wrote text while `brain--inhibit-guards' was bound.  The
+;;     buffer itself is the enforcement (`brain--any-buffer-dirty-p'), and it was
+;;     never consulted here -- so enrollment could publish the DISK bytes while a
+;;     human had unsaved text, and the next save would then report a disk/head
+;;     mismatch the human never caused;
+;;   * indirect buffers: `brain--visiting-buffers' already returns base and
+;;     indirect buffers of one identity, so the check above covers them;
+;;   * the autosave/recovery marker (`brain--recovery-marker'), which is what
+;;     survives a crash with unsaved text;
+;;   * alias registration of the identity being enrolled (§3: "register/check
+;;     aliases"), so a capture cannot enroll two spellings one volume collapses;
+;;   * the encoding of the bytes actually opened: §2 says "Publish only saved
+;;     exact UTF-8 bytes", and the accepted code hashed the file without ever
+;;     proving it decodes as UTF-8.  A binary or Latin-1 file would have been
+;;     enrolled and then failed on the gateway.
+;;
+;; "No yield between final check and baseline journaling/publication" is
+;; `brain--enroll-baseline-guarded' below: one `condition-case'-free body that
+;; re-reads the bytes, re-hashes them, re-checks the markers and then journals.
+;; Nothing in it calls a process, sleeps or accepts input.
+
+(defun brain--snapshot-target (request-id file-id)
+  "Answer one target snapshot without opening or touching a visiting buffer.
+Every actual-use guard runs before a baseline is allocated; a refusal is an
+`attention' answer with its reason, never a silent enrollment."
+  (let* ((resolution (brain--resolve file-id))
+         (path (plist-get resolution :path))
+         (head (gethash file-id brain--heads))
+         (lease (gethash file-id brain--dirty))
+         (buffers (brain--visiting-buffers file-id))
+         (dirty-buffer (brain--any-buffer-dirty-p buffers)))
+    (cond
+     ((equal (plist-get resolution :status) "unsafe")
+      (brain--snapshot-event request-id file-id "attention"
+                             (list (cons "continuation" :null)
+                                   (cons "reason" (or (plist-get resolution :reason)
+                                                      "unsafe_path")))
+                             t))
+     ((equal (plist-get resolution :status) "absent")
+      (if lease
+          (brain--snapshot-event request-id file-id "attention"
+                                 (list (cons "dirty_generation"
+                                             (plist-get lease :generation))
+                                       (cons "reason" "dirty_lease"))
+                                 t)
+        (brain--snapshot-event request-id file-id "absent" nil t)))
+     ;; A modified buffer of this identity owns the file, whether or not a lease
+     ;; was journaled.  §2 forbids publishing text the human has not saved.
+     ((or dirty-buffer (and lease (null head)))
+      (brain--snapshot-event request-id file-id "attention"
+                             (list (cons "dirty_generation"
+                                         (and lease (plist-get lease :generation)))
+                                   (cons "reason" (if dirty-buffer
+                                                      "modified_buffer"
+                                                    "dirty_lease")))
+                             t))
+     (t
+      (let ((digest (brain--sha256-file path)))
+        (cond
+         ((and head (not (equal digest (brain--rev-sha head))))
+          (brain--snapshot-event request-id file-id "attention"
+                                 (list (cons "revision" (brain--rev->json head))
+                                       (cons "object_hash" (brain--rev-sha head))
+                                       (cons "dirty_generation"
+                                             (and lease (plist-get lease :generation)))
+                                       (cons "reason" "disk_mismatch"))
+                                 t))
+         (t
+          (let ((outcome (if head (list :status "present" :revision head)
+                           (brain--enroll-baseline-guarded file-id path digest))))
+            (if (equal (plist-get outcome :status) "present")
+                (brain--snapshot-event
+                 request-id file-id "present"
+                 (list (cons "revision" (brain--rev->json (plist-get outcome :revision)))
+                       (cons "object_hash" (brain--rev-sha (plist-get outcome :revision)))
+                       (cons "dirty_generation" (and lease (plist-get lease :generation))))
+                 t)
+              (brain--snapshot-event request-id file-id "attention"
+                                     (list (cons "reason" (plist-get outcome :reason)))
+                                     t))))))))))
+
+(defun brain--enroll-baseline-guarded (file-id path digest)
+  "Enroll a verified baseline under the canonical writer's actual-use guards.
+Returns (:status \"present\" :revision REV) or (:status \"attention\" :reason R).
+The final section re-reads and re-hashes the exact opened bytes, re-checks every
+marker, and only then journals and publishes -- with no yield in between, so a
+save cannot land between the last check and the baseline."
+  (let* ((resolution (brain--resolve file-id))
+         (recheck-path (plist-get resolution :path)))
+    (cond
+     ((not (equal (plist-get resolution :status) "ok"))
+      (list :status "attention" :reason "path_changed"))
+     ((not (equal recheck-path path))
+      (list :status "attention" :reason "path_changed"))
+     ;; A marker that appeared since the outer check is a real refusal: an autosave
+     ;; or a lease means unsaved human text exists for this path.
+     ((brain--recovery-marker file-id)
+      (list :status "attention" :reason (or (brain--recovery-marker file-id)
+                                            "recovery_marker")))
+     ((brain--any-buffer-dirty-p (brain--visiting-buffers file-id))
+      (list :status "attention" :reason "modified_buffer"))
+     (t
+      (let* ((bytes (with-temp-buffer
+                      (set-buffer-multibyte nil)
+                      (insert-file-contents-literally recheck-path)
+                      (buffer-string)))
+             (opened (brain--sha256 bytes)))
+        (cond
+         ((> (length bytes) brain-object-max-bytes)
+          (list :status "attention" :reason "too_large"))
+         ((not (equal opened digest))
+          ;; The bytes changed between the hash and the open: never enroll a
+          ;; baseline the caller did not ask for.
+          (list :status "attention" :reason "disk_changed"))
+         ;; §2: "Publish only saved exact UTF-8 bytes."  A file that does not
+         ;; decode as UTF-8 is not a managed Org object, so it is refused here
+         ;; rather than enrolled and rejected later by the gateway.
+         ((not (brain--utf8-bytes-p bytes))
+          (list :status "attention" :reason "unsupported_coding"))
+         (t
+          (let ((revision (brain--enroll-baseline-bytes file-id bytes opened)))
+            (list :status "present" :revision revision)))))))))
+
+(defun brain--utf8-bytes-p (bytes)
+  "Non-nil when BYTES is valid UTF-8 text, with no raw-byte characters.
+Emacs does not signal on invalid UTF-8: `decode-coding-string' turns each
+undecodable byte into a raw-byte character (#x3FFF80..#x3FFFFF) and
+`encode-coding-string' turns it back, so a round-trip test alone would accept
+`#xFF' as \"UTF-8\".  §2 requires \"Publish only saved exact UTF-8 bytes\", so the
+raw-byte range is refused explicitly -- that is what actually distinguishes a
+UTF-8 Org file from a binary or Latin-1 one."
+  (condition-case nil
+      (let ((text (decode-coding-string bytes 'utf-8)))
+        (and (stringp text)
+             (equal (encode-coding-string text 'utf-8) bytes)
+             (not (seq-find (lambda (character)
+                              (and (>= character #x3FFF80) (<= character #x3FFFFF)))
+                            (string-to-list text)))))
+    (error nil)))
+
+(defun brain--enroll-baseline-bytes (file-id bytes digest)
+  "Allocate revision 0 for BYTES, publish the object and journal the snapshot.
+The bytes are the exact ones the guard just verified; nothing is re-read here.
+Alias registration happens before the journal, so a colliding spelling refuses
+the enrollment instead of leaving a head for an identity the store will reject."
+  (brain--register-identity file-id)
+  (let ((revision (brain--rev 0 digest)))
+    (brain--publish-object bytes digest)
+    (brain--journal-append "snapshot" :file_id file-id :revision revision
+                           :object_hash digest)
+    (puthash file-id revision brain--heads)
+    (brain--fsync (brain--object-path "mac" digest)
+                  (brain--file-path file-id))
+    (brain--heads-save)
+    revision))
+
+(defun brain--inventory-page (request-id inventory-id after limit)
+  "Answer one page of the captured list named by INVENTORY-ID.
+`after' is exclusive: the first page passes nil, later pages pass the last
+emitted `file_id'.  Nothing here reads or publishes a file body (§2: \"No body
+publication during page enumeration\")."
+  (let ((capture (brain--inventory-capture inventory-id)))
+    (cond
+     ((equal (plist-get capture :status) "expired")
+      ;; §2: an expired id requires a NEW inventory, never continuation against a
+      ;; list that has changed underneath the caller.
+      (brain--inventory-event request-id inventory-id nil nil t nil "inventory_expired"))
+     (t
+      (setq capture (brain--inventory-advance capture))
+      (cond
+       ((not (brain--inventory-ready-p capture))
+        ;; The walk is still in progress.  This is not a page and not an end: the
+        ;; caller must ask again with the same cursor.  `complete=false` plus a
+        ;; reason is how §2 says "not a trustworthy enumeration yet".
+        (brain--inventory-event request-id inventory-id nil after nil nil
+                                "inventory_walking"))
+       (t
+        (let* ((paths (plist-get capture :paths))
+               (reason (plist-get capture :reason))
+               (remaining (seq-drop-while (lambda (path)
+                                            (and after (not (string< after path))))
+                                          paths))
+               (page (seq-take remaining (max 1 (min 50 limit))))
+               (more (seq-drop remaining (length page)))
+               (entries (mapcar (lambda (path)
+                                  (let ((head (gethash path brain--heads)))
+                                    (list (cons "file_id" path)
+                                          (cons "head_revision"
+                                                (if head (brain--rev->json head) :null)))))
+                                page))
+               (next (and page (car (last page))))
+               ;; An incomplete capture is never "done": `done' means the walk of a
+               ;; trustworthy list reached its end, and a refused list has no end to
+               ;; reach.  Reporting done=true with complete=false would invite a
+               ;; consumer to treat the (empty) page as the whole corpus.
+               (done (and (null more) (null reason))))
+          (brain--inventory-event request-id inventory-id entries next done
+                                  (null reason) reason))))))))
+
+(defun brain--inventory-event (request-id inventory-id entries next done complete reason)
+  "Emit one `brain.inventory.page'.  `complete' is a boolean, `reason' text."
+  (brain--emit-event
+   "brain.inventory.page"
+   (append (list (cons "request_id" request-id)
+                 (cons "inventory_id" inventory-id)
+                 (cons "entries" (cons :json-array (or entries nil)))
+                 (cons "next_after" (or next :null))
+                 (cons "done" (if done t :false))
+                 (cons "complete" (if complete t :false)))
+           (when reason (list (cons "reason" reason))))))
+
+;; --- the history page answer ------------------------------------------------
+
+(defun brain--history-facts (file-id after-seq limit)
+  "Return (FACTS . MORE): FILE-ID's retained chain after AFTER-SEQ. A fact is
+  the ORIGINAL committed fact of one chain step: its operation id, its
+  predecessor and its revision.  `after-seq' is -1 for the beginning of the
+  retained chain.  Facts ascend by revision seq and never repeat one, so the
+  caller can install exactly one link at a time and can never be handed a hole
+  (§2: \"Hermes records each original fact and installs one chain step at a
+  time; never fabricates seq0 or skips to a latest nonzero head\")."
+  (let ((facts nil)
+        (more nil))
+    (dolist (record (append (brain--journal-records "snapshot")
+                            (brain--journal-records "committed")))
+      (let* ((record-file (plist-get record :file_id))
+             (revision (or (plist-get record :revision)
+                           (plist-get record :new_revision)))
+             (predecessor (plist-get record :prev_revision)))
+        (when (and (equal record-file file-id) revision
+                   (> (brain--rev-seq revision) after-seq))
+          (cond
+           ;; A fact beyond this page: the page is not the end of the chain.
+           ((>= (length facts) limit)
+            (setq more t))
+           (t
+            (push (list (cons "operation_id"
+                              (or (plist-get record :operation_id) (brain--uuid)))
+                        (cons "predecessor_revision"
+                              (if predecessor (brain--rev->json predecessor) :null))
+                        (cons "revision" (brain--rev->json revision))
+                        (cons "object_hash" (brain--rev-sha revision)))
+                  facts))))))
+    (cons (nreverse facts) more)))
+
+(defun brain--history-page (request-id file-id after-seq limit)
+  "Answer one bounded history page.  No new canonical commit is created."
+  (let* ((probe (brain--history-facts file-id after-seq limit))
+         (facts (car probe))
+         (more (cdr probe))
+         (next (and facts
+                    (plist-get (brain--rev<-json
+                                (alist-get "revision" (car (last facts)) nil nil #'equal))
+                               :seq))))
+    (brain--emit-event
+     "brain.file.history"
+     (list (cons "request_id" request-id)
+           (cons "file_id" file-id)
+           (cons "facts" (cons :json-array (or facts nil)))
+           (cons "next_after_seq" (or next :null))
+           (cons "done" (if more :false t))
+           (cons "complete" t)))))
+
+;; --- the query profile ------------------------------------------------------
+;;
+;; §4 exports the EFFECTIVE Org configuration, so these functions read Org's own
+;; variables and ask Org itself which keywords are done states.  `brain' does not
+;; `require' Org at load time -- it is loaded by the user's configuration and is
+;; inert until configured, and requiring Org here would change that load order --
+;; so Org is required at the point of use instead.  That is also what makes the
+;; variables special: with `lexical-binding' a free `org-todo-keywords' would be a
+;; lexical variable, and a caller's `let'-binding of it would silently not be seen.
+
+(defun brain--require-org ()
+  "Load Org on first use and return non-nil when its configuration is readable."
+  (require 'org)
+  (require 'org-agenda nil t)
+  t)
+
+(defun brain--todo-keyword (raw)
+  "Return the keyword text of RAW, stripping Org's fast-key/effort/logger suffix."
+  (if (and (stringp raw) (string-match "\\`\\([^(@!/]+\\)" raw))
+      (match-string 1 raw)
+    raw))
+
+(defun brain--todo-sequences ()
+  "Return the effective Org TODO configuration as data (§4). Each sequence is
+  `{name, keywords, done}`: the ordered keyword list, and the subset Org itself
+  treats as done states.  Both facts come from Org, not from a
+  re-implementation: letting `org-mode' build its table from ONE sequence makes
+  `org-done-keywords' Org's own answer for that sequence, which is what decides
+  the `|' split, the implicit last-keyword rule and the `type' form."
+  (brain--require-org)
+  (let ((sequences nil) (index 0))
+    (dolist (entry (or org-todo-keywords '((sequence "TODO" "DONE"))))
+      (let* ((kind (car entry))
+             (raw (cdr entry))
+             (keywords (delq nil (mapcar (lambda (word)
+                                           (unless (equal word "|")
+                                             (brain--todo-keyword word)))
+                                         raw)))
+             ;; Org's own done set for exactly this sequence.  `org-todo-keywords'
+             ;; is a special variable (see the `defvar' block), so this `let' is a
+             ;; dynamic binding: `org-mode' reads it, sets `org-done-keywords' from
+             ;; it, and the caller's configuration is restored on exit.
+             (done (let ((org-todo-keywords (list (cons kind raw))))
+                     (with-temp-buffer
+                       (org-mode)
+                       (mapcar #'identity (or org-done-keywords nil))))))
+        (setq index (1+ index))
+        (push (list (cons "name" (format "%s-%d" (or kind 'sequence) index))
+                    (cons "keywords" (cons :json-array keywords))
+                    (cons "done" (cons :json-array
+                                       (seq-filter (lambda (word) (member word keywords))
+                                                   done))))
+              sequences)))
+    (nreverse sequences)))
+
+(defun brain--agenda-file-ids ()
+  "Return the managed agenda files as file_ids, sorted and deduped (§4)."
+  (brain--require-org)
+  (let ((ids nil))
+    (dolist (entry (ignore-errors (org-agenda-files t)))
+      (when (and (stringp entry) (string-match-p "\\.org\\'" entry))
+        (let ((id (brain--identity-for-path entry)))
+          (when (and id
+                     (brain--eligible-p (substring id 0 (string-search "/" id))
+                                        (substring id (1+ (string-search "/" id)))))
+            (push id ids)))))
+    (sort (delete-dups ids) #'string<)))
+
+(defun brain--timezone-name ()
+  "Return the IANA zone name this Emacs is running in, or nil.
+`current-time-zone' gives an offset and an abbreviation, not a name, so the name
+is read from where the OS records it.  Nil is honest: §4 says unsupported values
+are REPORTED, so a missing name becomes an `unsupported' entry, never a guessed
+one."
+  (let ((tz (getenv "TZ")))
+    (cond
+     ((and (stringp tz) (not (string-empty-p tz)))
+      (if (string-prefix-p ":" tz) (substring tz 1) tz))
+     ((file-symlink-p "/etc/localtime")
+      (let ((target (file-truename "/etc/localtime")))
+        (when (string-match "/zoneinfo/\\(.+\\)\\'" target)
+          (match-string 1 target))))
+     (t nil))))
+
+(defun brain--query-profile ()
+  "Return the bounded query profile payload (§4): data, never Lisp. Fields:
+  version, profile_hash, todo_sequences, agenda_file_ids, timezone, week_start,
+  deadline_warning_days[, unsupported].  `profile_hash' is the sha256 of the
+  canonical JSON of everything else, computed over the WIRE form of the same
+  facts -- the gateway receives that form and must be able to re-derive the
+  hash from what it holds, so hashing the pre-encoding Lisp (with its
+  `:json-array' markers) would make the value unverifiable on the other side."
+  (brain--require-org)
+  (let* ((timezone (brain--timezone-name))
+         (unsupported (unless timezone (list "timezone")))
+         (body (list (cons "version" 1)
+                     (cons "todo_sequences" (cons :json-array (brain--todo-sequences)))
+                     (cons "agenda_file_ids" (cons :json-array (brain--agenda-file-ids)))
+                     (cons "timezone" (or timezone :null))
+                     (cons "week_start" (if (integerp org-agenda-start-on-weekday)
+                                            org-agenda-start-on-weekday
+                                          (if (integerp calendar-week-start-day)
+                                              calendar-week-start-day 1)))
+                     (cons "deadline_warning_days"
+                           (if (integerp org-deadline-warning-days)
+                               org-deadline-warning-days 14))))
+         ;; The wire form, which is what the gateway stores and re-hashes.
+         (wire (brain--json-decode (brain--json-encode body))))
+    (append body
+            (list (cons "profile_hash" (brain--sha256 (brain--json-encode wire))))
+            (when unsupported
+              (list (cons "unsupported" (cons :json-array unsupported)))))))
+
+(defun brain--emit-query-profile ()
+  "Emit one `brain.query.profile' after readiness (§4)."
+  (brain--emit-event "brain.query.profile" (brain--query-profile)))
+
+;; --- request dispatch -------------------------------------------------------
+
+(defun brain--handle-snapshot-request (frame)
+  "Dispatch one `brain.snapshot.request'.
+The legacy shapes are tried first and unchanged; `mode' selects the corpus
+shapes.  An unknown mode is refused rather than reinterpreted, and the node
+refuses a corpus mode on an unnegotiated session before it ever gets here."
+  (let ((request-id (alist-get "request_id" frame nil nil #'equal))
+        (file-id (alist-get "file_id" frame nil nil #'equal))
+        (limit (alist-get "limit" frame nil nil #'equal))
+        (after (alist-get "after_file_id" frame nil nil #'equal))
+        (mode (alist-get "mode" frame nil nil #'equal))
+        (inventory-id (alist-get "inventory_id" frame nil nil #'equal))
+        (after-seq (alist-get "after_revision_seq" frame nil nil #'equal)))
+    (cond
+     ((not (brain--frame-brain-id-ok-p frame))
+      (brain--log "snapshot request for a foreign brain id refused"))
+     ((equal mode "inventory")
+      (if (not (and (stringp inventory-id) (integerp limit)))
+          (brain--log "inventory request without inventory_id or limit refused")
+        (brain--inventory-page request-id inventory-id after limit)))
+     ((equal mode "history")
+      (if (not (and (stringp file-id) (integerp limit)))
+          (brain--log "history request without file_id or limit refused")
+        (brain--history-page request-id file-id
+                             (if (integerp after-seq) after-seq -1) limit)))
+     ((and mode (not (member mode '("inventory" "history"))))
+      (brain--log "snapshot request with unknown mode refused"))
+     (file-id (brain--snapshot-target request-id file-id))
+     (limit (brain--snapshot-page request-id after limit))
+     (t (brain--log "snapshot request without target or page")))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Recovery

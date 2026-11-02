@@ -1,0 +1,269 @@
+{
+  "version": 1,
+  "unicode": "15.0.0",
+  "note": "Shared eligibility/alias fixture (design t_c52859ca v2 §3). The Mac provider and the Hermes store must both reproduce every pinned alias key and every category here; the category vocabulary, not an exception type, is the cross-language contract.",
+  "alias": [
+    {
+      "input": "org-files/Note.org",
+      "key": "org-files/note.org"
+    },
+    {
+      "input": "org-files/PROJECTS/Companion-Link.org",
+      "key": "org-files/projects/companion-link.org"
+    },
+    {
+      "input": "org-files/Straße.org",
+      "key": "org-files/strasse.org"
+    },
+    {
+      "input": "org-files/STRASSE.org",
+      "key": "org-files/strasse.org"
+    },
+    {
+      "input": "org-files/ΣΟΦΟΣ.org",
+      "key": "org-files/σοφοσ.org"
+    },
+    {
+      "input": "org-files/σοφος.org",
+      "key": "org-files/σοφοσ.org"
+    },
+    {
+      "input": "org-files/İstanbul.org",
+      "key": "org-files/i̇stanbul.org"
+    },
+    {
+      "input": "org-files/µm.org",
+      "key": "org-files/μm.org"
+    },
+    {
+      "input": "org-files/ﬁle.org",
+      "key": "org-files/file.org"
+    },
+    {
+      "input": "org-files/և.org",
+      "key": "org-files/եւ.org"
+    },
+    {
+      "input": "org-files/ꭰ.org",
+      "key": "org-files/Ꭰ.org"
+    },
+    {
+      "input": "org-files/Café.org",
+      "key": "org-files/café.org"
+    },
+    {
+      "input": "org-roam/Notes/Über-Änderungen.org",
+      "key": "org-roam/notes/über-änderungen.org"
+    },
+    {
+      "input": "org-files/Kelvin.org",
+      "key": "org-files/kelvin.org"
+    }
+  ],
+  "alias_collisions": [
+    [
+      "org-files/Straße.org",
+      "org-files/STRASSE.org",
+      "org-files/strasse.org"
+    ],
+    [
+      "org-files/ΣΟΦΟΣ.org",
+      "org-files/σοφος.org",
+      "org-files/σοφοσ.org"
+    ],
+    [
+      "org-files/ﬁle.org",
+      "org-files/FILE.org"
+    ],
+    [
+      "org-files/µm.org",
+      "org-files/μm.org"
+    ],
+    [
+      "org-files/İstanbul.org",
+      "org-files/i̇stanbul.org",
+      "org-files/İSTANBUL.org"
+    ]
+  ],
+  "alias_distinct": [
+    [
+      "org-files/Note.org",
+      "org-files/Notes.org"
+    ],
+    [
+      "org-files/a.org",
+      "org-roam/a.org"
+    ],
+    [
+      "org-files/Straßen.org",
+      "org-files/Strasse.org"
+    ],
+    [
+      "org-files/µ.org",
+      "org-files/m.org"
+    ],
+    [
+      "org-files/ﬁle.org",
+      "org-files/fille.org"
+    ]
+  ],
+  "eligible": [
+    "org-files/Note.org",
+    "org-files/sub/Deep Note.org",
+    "org-files/Straße.org",
+    "org-files/Über.org",
+    "org-files/2026-11-02.org",
+    "org-files/a.b.c.org",
+    "org-roam/notes/2026-11-02-corpus.org",
+    "org-roam/ΣΟΦΟΣ.org",
+    "org-files/test-notes.org",
+    "org-files/temp-idea.org",
+    "org-files/latex-export-notes.org",
+    "org-files/build-log.org",
+    "org-files/generated-notes.org",
+    "org-files/tmp-notes.org",
+    "org-files/exports-and-imports.org"
+  ],
+  "ineligible": [
+    {
+      "file_id": "org-files/.sync-conflict-20261012-203034-LUOUS7F.org",
+      "category": "sync_conflict"
+    },
+    {
+      "file_id": "org-files/sub/.sync-conflict-20260101-000000-AAAAAAA.org",
+      "category": "sync_conflict"
+    },
+    {
+      "file_id": "org-files/.#Locked.org",
+      "category": "dot_hash"
+    },
+    {
+      "file_id": "org-files/sub/.#Locked.org",
+      "category": "dot_hash"
+    },
+    {
+      "file_id": "org-files/#AutoSave.org#",
+      "category": "hash_bracket"
+    },
+    {
+      "file_id": "org-files/Note.org~",
+      "category": "backup_tilde"
+    },
+    {
+      "file_id": "org-files/Note.org.swp",
+      "category": "swap"
+    },
+    {
+      "file_id": "org-files/Note.org.swo",
+      "category": "swap"
+    },
+    {
+      "file_id": "org-files/.git/generated.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/.git/objects/ab/cdef.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/tmp/generated.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/temp/scratch.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/build/out.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/dist/out.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/generated/out.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/exports/out.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/.cache/x.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/.trash/x.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/.hg/x.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/.svn/x.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/auto-save-list/x.org",
+      "category": "excluded_directory"
+    },
+    {
+      "file_id": "org-files/Note.txt",
+      "category": "not_org"
+    },
+    {
+      "file_id": "org-files/Note.org.bak",
+      "category": "not_org"
+    },
+    {
+      "file_id": "org-files/notes.orgx",
+      "category": "not_org"
+    },
+    {
+      "file_id": "org-files/Café.org",
+      "category": "not_nfc"
+    },
+    {
+      "file_id": "org-files/Kelvin.org",
+      "category": "not_nfc"
+    },
+    {
+      "file_id": "/etc/passwd.org",
+      "category": "unknown_root"
+    },
+    {
+      "file_id": "org-files/..\\escape.org",
+      "category": "backslash"
+    },
+    {
+      "file_id": "org-files/../escape.org",
+      "category": "traversal"
+    },
+    {
+      "file_id": "org-files/./Note.org",
+      "category": "traversal"
+    },
+    {
+      "file_id": "org-files//Note.org",
+      "category": "absolute"
+    },
+    {
+      "file_id": "org-files/bell\u0007.org",
+      "category": "control"
+    },
+    {
+      "file_id": "elsewhere/Note.org",
+      "category": "unknown_root"
+    },
+    {
+      "file_id": "org-files/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.org",
+      "category": "segment_too_long"
+    },
+    {
+      "file_id": "org-files/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/Note.org",
+      "category": "path_too_long"
+    }
+  ]
+}

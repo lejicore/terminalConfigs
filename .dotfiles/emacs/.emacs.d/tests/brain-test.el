@@ -92,6 +92,9 @@ See `brain-test--with-live-advice-order' for the live advice order."
           (brain-state-directory brain-test--state)
           (brain-transport-directory nil)
           (brain-node-socket (expand-file-name "ipc/test.sock" brain-test--state))
+          (brain-inventory-slice-entries 50)
+          (brain-inventory-slice-seconds 0.02)
+          (brain-inventory-max-paths 10000)
           (brain-fsync-enabled nil))
      (brain-test--reset-state)
      (make-directory org-files t)
@@ -124,6 +127,20 @@ See `brain-test--with-live-advice-order' for the live advice order."
     (let ((coding-system-for-write 'utf-8-unix))
       (write-region text nil path nil 'no-message)))
   path)
+
+(defun brain-test--write-bytes (path bytes)
+  "Write raw BYTES to PATH without going through the Brain primitive.
+Used where the point of the test is bytes that are not valid UTF-8."
+  (let ((brain--inhibit-guards t))
+    (make-directory (file-name-directory path) t)
+    (let ((coding-system-for-write 'binary))
+      (write-region bytes nil path nil 'no-message)))
+  path)
+
+(defun brain-test--delete (path)
+  "Delete PATH without going through the Brain guard."
+  (let ((brain--inhibit-guards t))
+    (when (file-exists-p path) (delete-file path))))
 
 (defun brain-test--bytes (text)
   (encode-coding-string text 'utf-8))
@@ -1999,3 +2016,1159 @@ until a manual `brain-disable'/`brain-enable'."
 
 (provide 'brain-test)
 ;;; brain-test.el ends here
+;;; ---------------------------------------------------------------------------
+;;; E2: corpus census, snapshots, history and the query profile
+;;; (design t_c52859ca v2 §2/§3/§4)
+;;; ---------------------------------------------------------------------------
+;;
+;; Everything below drives REAL temporary roots and REAL buffers.  Nothing is
+;; stubbed: the census walks a real directory tree, the guards read real files and
+;; real modified buffers, the history is read from the real journal, and the
+;; profile is built from real Org configuration.  The shared fixture
+;; `tests/fixtures/eligibility.json' is the same file the Python side reads, so a
+;; divergence between the two implementations fails here rather than in
+;; production.
+
+(defvar brain-test--directory
+  (file-name-directory (or load-file-name buffer-file-name
+                           (expand-file-name "brain-test.el")))
+  "Directory this suite was loaded from, captured at load time.
+`load-file-name' is nil while ERT runs the tests, so the fixture path cannot be
+computed lazily.")
+
+(defun brain-test--fixture-path ()
+  "Return the shared fixture's path, wherever this suite was installed.
+The suite is loaded from two layouts: a flat directory during development
+(`<dir>/brain-test.el' with `<dir>/tests/fixtures/') and the installed layout
+(`.emacs.d/tests/brain-test.el' with `.emacs.d/tests/fixtures/').  Both are tried
+rather than assumed, so a moved file cannot silently skip the cross-language
+check."
+  (let ((candidates (list (expand-file-name "tests/fixtures/eligibility.json"
+                                            brain-test--directory)
+                          (expand-file-name "fixtures/eligibility.json"
+                                            brain-test--directory))))
+    (seq-find #'file-exists-p candidates)))
+
+(defvar brain-test--fixture-cache nil
+  "Parsed `eligibility.json', loaded once per suite.")
+
+(defun brain-test--fixture ()
+  "Return the shared eligibility fixture as a Lisp alist tree."
+  (unless brain-test--fixture-cache
+    (let ((path (brain-test--fixture-path)))
+      (unless path
+        (ert-skip (format "shared fixture is not installed beside %s"
+                          brain-test--directory)))
+      (with-temp-buffer
+        (set-buffer-multibyte t)
+        (let ((coding-system-for-read 'utf-8-unix))
+          (insert-file-contents path))
+        (setq brain-test--fixture-cache
+              (brain--json-decode (buffer-substring-no-properties
+                                   (point-min) (point-max)))))))
+  brain-test--fixture-cache)
+
+(defun brain-test--fixture-list (key)
+  "Return KEY's value from the fixture as a list of alists."
+  (alist-get key (brain-test--fixture) nil nil #'equal))
+
+(defun brain-test--write-tree (spec)
+  "Create SPEC, an alist of relative path -> text, beneath `brain-test--root'.
+A nil value creates a directory.  Paths are relative to the environment root, so
+\"org-files/a.org\" lands inside the managed root."
+  (dolist (cell spec)
+    (let ((path (expand-file-name (car cell) brain-test--root)))
+      (if (null (cdr cell))
+          (make-directory path t)
+        (brain-test--write path (cdr cell))))))
+
+(defun brain-test--inventory-request (inventory-id &optional after limit)
+  "Drive one real corpus inventory page request through the dispatcher."
+  (brain--handle-snapshot-request
+   (append (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+                 (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+                 (cons "mode" "inventory") (cons "inventory_id" inventory-id)
+                 (cons "limit" (or limit 50)))
+           (when after (list (cons "after_file_id" after))))))
+
+(defun brain-test--history-request (file-id after-seq &optional limit)
+  "Drive one real corpus history page request through the dispatcher."
+  (brain--handle-snapshot-request
+   (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+         (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+         (cons "mode" "history") (cons "file_id" file-id)
+         (cons "after_revision_seq" after-seq) (cons "limit" (or limit 50)))))
+
+(defun brain-test--events-of-kind (kind)
+  "Every journaled event payload of KIND, in emission order, wire-decoded.
+The payload is round-tripped through the real encoder and decoder, so a test sees
+exactly what the node receives: `:json-array' is an encoder directive, not data,
+and it must not leak into an assertion."
+  (let ((out nil))
+    (dolist (record brain--journal)
+      (when (and (equal (plist-get record :kind) "event")
+                 (equal (plist-get record :event_kind) kind))
+        (push (brain--json-decode
+               (brain--json-encode
+                (alist-get "payload" (plist-get record :payload) nil nil #'equal)))
+              out)))
+    (nreverse out)))
+
+(defun brain-test--last-payload-of-kind (kind)
+  (car (last (brain-test--events-of-kind kind))))
+
+(defun brain-test--flag (payload name)
+  "Return PAYLOAD's NAME as a Lisp boolean.
+The wire spells JSON `true'/`false'; `brain--json-decode' reads them back as `t'
+and `:false' (its `:false-object'), so an assertion must not compare against
+`nil' and expect a JSON false to satisfy it."
+  (eq (alist-get name payload nil nil #'equal) t))
+
+(defun brain-test--value (payload name)
+  "Return PAYLOAD's NAME, with a JSON false normalised to nil."
+  (let ((value (alist-get name payload nil nil #'equal)))
+    (if (eq value :false) nil value)))
+
+(defun brain-test--inventory-entries (payload)
+  "The `entries' of one inventory page payload as a list of (FILE-ID . HEAD)."
+  (mapcar (lambda (entry)
+            (cons (alist-get "file_id" entry nil nil #'equal)
+                  (alist-get "head_revision" entry nil nil #'equal)))
+          (alist-get "entries" payload nil nil #'equal)))
+
+(defun brain-test--drain-inventory (inventory-id limit)
+  "Walk every page of INVENTORY-ID and return (ENTRIES . FINAL-PAGE).
+Pages are requested with the cursor each one names, until a page reports `done'.
+The guard is a safety net, not the loop condition: a capture that never finishes
+would otherwise hang the suite instead of failing it."
+  (let ((after nil) (entries nil) (page nil) (guard 0) (done nil))
+    (while (and (< guard 400) (not done))
+      (brain-test--inventory-request inventory-id after limit)
+      (setq page (brain-test--last-payload-of-kind "brain.inventory.page"))
+      (setq entries (append entries (brain-test--inventory-entries page)))
+      (setq after (alist-get "next_after" page nil nil #'equal))
+      (setq done (brain-test--flag page "done"))
+      (setq guard (1+ guard)))
+    (cons entries page)))
+
+;;; --- the shared eligibility predicate and the alias key ---------------------
+
+(ert-deftest brain-test-eligibility-fixture-alias-keys ()
+  "Every pinned alias key is reproduced by the Mac's casefold implementation.
+This is the cross-language half of §3: the fixture's `key' values were computed
+by Python's `str.casefold()' over NFC, and the Mac must produce the same string
+for the same input.  A `downcase'-only implementation fails on `Straße.org',
+`ΣΟΦΟΣ.org', `ﬁle.org', `µm.org' and the Cherokee block.
+
+The key is computed from the identity text directly, not through
+`brain--alias-key', because some pinned inputs are deliberately non-NFC: §3 makes
+NFC a precondition of the identity, and the alias key normalises anyway."
+  (brain-test--with-environment
+    (dolist (case (brain-test--fixture-list "alias"))
+      (let* ((input (alist-get "input" case nil nil #'equal))
+             (key (alist-get "key" case nil nil #'equal))
+             (slash (string-search "/" input))
+             (root (substring input 0 slash))
+             (relative (substring input (1+ slash))))
+        (should (equal (concat root "/" (brain--casefold (brain--nfc relative)))
+                       key))))))
+
+(ert-deftest brain-test-eligibility-fixture-collisions ()
+  "Every pinned collision group collapses to ONE alias key.
+§3: \"reject conflicting spellings, never pick one\".  Registering the first and
+then the second must signal, and the same key must be produced by all members."
+  (brain-test--with-environment
+    (dolist (group (brain-test--fixture-list "alias_collisions"))
+      (let ((keys (mapcar #'brain--alias-key group)))
+        (should (= (length (delete-dups (copy-sequence keys))) 1))
+        (dolist (member group)
+          (if (equal member (car group))
+              (should (equal (brain--register-identity member) member))
+            (should-error (brain--register-identity member)
+                          :type 'brain-alternate-route)))))))
+
+(ert-deftest brain-test-eligibility-fixture-distinct-identities ()
+  "Every pinned distinct pair keeps two different alias keys.
+This is the other half of the collision rule: an over-eager fold that collapsed
+`Straße.org' with `Strasse.org' (one `s', not two) would silently merge two real
+notes."
+  (brain-test--with-environment
+    (dolist (pair (brain-test--fixture-list "alias_distinct"))
+      (let ((left (nth 0 pair)) (right (nth 1 pair)))
+        (should-not (equal (brain--alias-key left) (brain--alias-key right)))
+        (should (equal (brain--register-identity left) left))
+        (should (equal (brain--register-identity right) right))))))
+
+(ert-deftest brain-test-eligibility-fixture-eligible ()
+  "Every pinned eligible path is accepted, including the heuristic traps.
+§3 forbids excluding names merely because they contain \"test\", \"temp\" or
+\"latex\": `test-notes.org', `temp-idea.org', `latex-export-notes.org',
+`build-log.org' and `tmp-notes.org' are real knowledge and must stay eligible."
+  (brain-test--with-environment
+    (dolist (file-id (brain-test--fixture-list "eligible"))
+      (let* ((split (cons (substring file-id 0 (string-search "/" file-id))
+                          (substring file-id (1+ (string-search "/" file-id))))))
+        (should-not (brain--eligibility (car split) (cdr split)))
+        (should (brain--eligible-p (car split) (cdr split)))
+        ;; And the identity guard agrees with the predicate.
+        (should (equal (brain--make-file-id (car split) (cdr split)) file-id))))))
+
+(ert-deftest brain-test-eligibility-fixture-ineligible ()
+  "Every pinned ineligible path is refused with its pinned category.
+The category vocabulary, not an exception type, is the cross-language contract."
+  (brain-test--with-environment
+    (dolist (case (brain-test--fixture-list "ineligible"))
+      (let* ((file-id (alist-get "file_id" case nil nil #'equal))
+             (expected (alist-get "category" case nil nil #'equal))
+             (slash (string-search "/" file-id))
+             (root (if slash (substring file-id 0 slash) file-id))
+             (relative (if slash (substring file-id (1+ slash)) "")))
+        (should (equal (brain--eligibility root relative) expected))))))
+
+(ert-deftest brain-test-eligibility-excludes-directories-not-filenames ()
+  "An excluded DIRECTORY name is refused; a FILE with that name is not.
+`org-files/build/out.org' is in an excluded directory; `org-files/build.org' is a
+note whose name merely starts with the same word.  Distinguishing them is what
+keeps §3's \"do NOT exclude arbitrary filenames\" honest."
+  (brain-test--with-environment
+    (should (equal (brain--eligibility "org-files" "build/out.org") "excluded_directory"))
+    (should (equal (brain--eligibility "org-files" "tmp/generated.org")
+                   "excluded_directory"))
+    (should-not (brain--eligibility "org-files" "build.org"))
+    (should-not (brain--eligibility "org-files" "tmp.org"))
+    (should-not (brain--eligibility "org-files" "generated.org"))
+    (should-not (brain--eligibility "org-files" "exports.org"))
+    ;; A nested directory that is NOT excluded stays eligible.
+    (should-not (brain--eligibility "org-files" "projects/companion/Note.org"))))
+
+(ert-deftest brain-test-eligibility-precedence-is-documented ()
+  "The refusal category is the FIRST matching class, not an arbitrary one.
+`org-files/.git/x.org~' is both an excluded directory and a backup file; the
+documented order decides, and the fixture pins the answer so E4 can reproduce it."
+  (brain-test--with-environment
+    (should (equal (brain--eligibility "org-files" ".git/x.org~") "backup_tilde"))
+    (should (equal (brain--eligibility "org-files" ".git/x.org") "excluded_directory"))
+    (should (equal (brain--eligibility "org-files" ".git/x.txt") "not_org"))
+    (should (equal (brain--eligibility "elsewhere" "/etc/x.org") "unknown_root"))))
+
+;;; --- the captured inventory -------------------------------------------------
+
+(ert-deftest brain-test-inventory-empty-root-is-complete-and-empty ()
+  "An empty complete root is entries=[], done=true, next_after=null (§2).
+It is NOT an error, and it carries no dummy `file_id' -- the accepted legacy page
+emitted a terminal event naming nil, which the gateway's validator refuses."
+  (brain-test--with-environment
+    (let* ((result (brain-test--drain-inventory (brain--uuid) 50))
+           (page (cdr result)))
+      (should (null (car result)))
+      (should (brain-test--flag page "done"))
+      (should (brain-test--flag page "complete"))
+      (should (null (alist-get "next_after" page nil nil #'equal)))
+      (should (null (alist-get "reason" page nil nil #'equal))))))
+
+(ert-deftest brain-test-inventory-page-sizes-0-1-50-51-101 ()
+  "The capture pages correctly at the boundaries §2 names: 0, 1, 50, 51 and 101.
+Each page is bounded by `limit', `next_after' is the last emitted id, `done' is
+true only on the final page, and the concatenation is exactly the captured list."
+  (brain-test--with-environment
+    (dolist (count '(0 1 50 51 101))
+      (let ((ids nil))
+        ;; A fresh root for each size, so the capture cannot see the previous one.
+        (dolist (path (directory-files (expand-file-name "org-files/" brain-test--root)
+                                       nil "\\`[^.]" t))
+          (brain-test--delete (expand-file-name path (expand-file-name "org-files/"
+                                                                      brain-test--root))))
+        (dotimes (index count)
+          (let ((name (format "note-%03d.org" index)))
+            (brain-test--write (expand-file-name (concat "org-files/" name)
+                                                 brain-test--root)
+                               (format "* %s\n" name))
+            (push (concat "org-files/" name) ids)))
+        (setq ids (sort ids #'string<))
+        (let* ((result (brain-test--drain-inventory (brain--uuid) 50))
+               (entries (car result))
+               (page (cdr result))
+               (emitted (mapcar #'car entries)))
+          (should (equal emitted ids))
+          (should (brain-test--flag page "done"))
+          (should (brain-test--flag page "complete"))
+          ;; Every page was bounded, and every page named its own last id.
+          (dolist (payload (brain-test--events-of-kind "brain.inventory.page"))
+            (should (<= (length (brain-test--inventory-entries payload)) 50))
+            (let ((page-entries (brain-test--inventory-entries payload))
+                  (next (alist-get "next_after" payload nil nil #'equal)))
+              (cond
+               ((null page-entries) (should (null next)))
+               (t (should (equal next (car (last (mapcar #'car page-entries))))))))))))))
+
+(ert-deftest brain-test-inventory-capture-is-stable-amidst-new-files ()
+  "A capture is an immutable PATH LIST: files created between pages do not appear.
+§2 says the capture identifies \"an immutable captured sorted PATH LIST, not frozen
+file contents\".  Re-walking per page would shift every later slice when a file is
+created, which is exactly the instability the capture exists to prevent."
+  (brain-test--with-environment
+    (dolist (name '("a.org" "b.org" "c.org" "d.org"))
+      (brain-test--write (expand-file-name (concat "org-files/" name) brain-test--root)
+                         (concat "* " name "\n")))
+    (let* ((inventory-id (brain--uuid))
+           (first (progn (brain-test--inventory-request inventory-id nil 2)
+                         (brain-test--last-payload-of-kind "brain.inventory.page")))
+           (first-entries (brain-test--inventory-entries first)))
+      (should (= (length first-entries) 2))
+      ;; A new file appears on disk between pages.
+      (brain-test--write (expand-file-name "org-files/aa-new.org" brain-test--root)
+                         "* new\n")
+      (let* ((second (progn (brain-test--inventory-request
+                             inventory-id (alist-get "next_after" first nil nil #'equal) 2)
+                            (brain-test--last-payload-of-kind "brain.inventory.page")))
+             (second-entries (brain-test--inventory-entries second)))
+        ;; The capture's own list is unchanged: no `aa-new.org', and the slice
+        ;; continues exactly after the first page's cursor.
+        (should-not (member "org-files/aa-new.org" (mapcar #'car second-entries)))
+        (should (equal (mapcar #'car second-entries) '("org-files/c.org" "org-files/d.org")))
+        (should (brain-test--flag second "done")))
+      ;; A NEW inventory sees the new file: the capture is per-id, not global.
+      (let* ((fresh (brain-test--drain-inventory (brain--uuid) 50))
+             (emitted (mapcar #'car (car fresh))))
+        (should (member "org-files/aa-new.org" emitted))
+        (should (= (length emitted) 5))))))
+
+(ert-deftest brain-test-inventory-expiry-requires-a-new-capture ()
+  "An expired inventory_id returns `inventory_expired', never a continuation.
+§2: \"Expired id returns inventory_expired, requiring a new inventory, not
+continuation against a changed list.\""
+  (brain-test--with-environment
+    (brain-test--write (expand-file-name "org-files/a.org" brain-test--root) "* a\n")
+    (let ((inventory-id (brain--uuid)))
+      (brain-test--inventory-request inventory-id nil 50)
+      (should (brain-test--flag (brain-test--last-payload-of-kind "brain.inventory.page") "complete"))
+      ;; Age the capture past its TTL, exactly as an abandoned capture would age.
+      (let ((capture (gethash inventory-id brain--inventories)))
+        (puthash inventory-id (plist-put capture :used (- (float-time)
+                                                          (1+ brain-inventory-ttl)))
+                 brain--inventories))
+      (brain-test--inventory-request inventory-id nil 50)
+      (let ((payload (brain-test--last-payload-of-kind "brain.inventory.page")))
+        (should (equal (alist-get "reason" payload nil nil #'equal) "inventory_expired"))
+        (should (not (brain-test--flag payload "complete")))
+        (should (null (brain-test--inventory-entries payload)))
+        ;; And the aged capture is gone from the table, not merely refused.
+        (should-not (gethash inventory-id brain--inventories))))))
+
+(ert-deftest brain-test-inventory-inaccessible-root-is-incomplete-not-empty ()
+  "A missing or unreadable root is complete=false with a reason (§2).
+It must never be reported as `entries=[], done=true', which a caller would read as
+\"this root is empty\" and could then treat as a retirement signal."
+  (brain-test--with-environment
+    (let ((saved brain-managed-roots))
+      (unwind-protect
+          (progn
+            ;; A configured root that does not exist at all.
+            (setq brain-managed-roots
+                  (list (cons "org-files" (expand-file-name "missing-root/"
+                                                            brain-test--root))
+                        (cons "org-roam" (expand-file-name "org-roam/" brain-test--root))))
+            (let ((result (brain-test--drain-inventory (brain--uuid) 50))
+                  (page nil))
+              (setq page (cdr result))
+              (should (not (brain-test--flag page "complete")))
+              (should (equal (alist-get "reason" page nil nil #'equal) "missing_root"))
+              (should (null (car result)))))
+        (setq brain-managed-roots saved)))))
+
+(ert-deftest brain-test-inventory-unreadable-directory-is-incomplete ()
+  "A directory that exists but cannot be read is complete=false, not empty.
+`directory-files' signals on it; the capture must turn that into an explicit
+reason rather than silently enumerating nothing."
+  (brain-test--with-environment
+    (let* ((locked (expand-file-name "org-files/locked/" brain-test--root)))
+      (make-directory locked t)
+      (brain-test--write (expand-file-name "org-files/visible.org" brain-test--root)
+                         "* visible\n")
+      (unwind-protect
+          (progn
+            (set-file-modes locked #o000)
+            (let* ((result (brain-test--drain-inventory (brain--uuid) 50))
+                   (page (cdr result)))
+              ;; Root can be read but the child cannot: still incomplete.
+              (should (not (brain-test--flag page "complete")))
+              (should (stringp (alist-get "reason" page nil nil #'equal)))
+              ;; And the failure is never dressed up as an empty complete list.
+              (should-not (and (brain-test--flag page "complete")
+                               (null (car result))))))
+        (set-file-modes locked #o755)))))
+
+(ert-deftest brain-test-inventory-oversize-is-explicit-attention ()
+  "A capture over the path bound is complete=false with `inventory_oversize'.
+§2: \"Oversize corpus is explicit attention with no retirement inference.\"  The
+bound is lowered here so the test does not need 10,000 real files."
+  (brain-test--with-environment
+    (let ((brain-inventory-max-paths 3))
+      (dotimes (index 5)
+        (let ((name (format "n-%d.org" index)))
+          (brain-test--write (expand-file-name (concat "org-files/" name)
+                                               brain-test--root)
+                             (concat "* " name "\n"))))
+      (let* ((result (brain-test--drain-inventory (brain--uuid) 50))
+             (page (cdr result)))
+        (should (not (brain-test--flag page "complete")))
+        (should (equal (alist-get "reason" page nil nil #'equal) "inventory_oversize"))
+        ;; No entries are published from an oversize capture: a partial list would
+        ;; be a retirement signal for everything it omits.
+        (should (null (car result)))))))
+
+(ert-deftest brain-test-inventory-excludes-non-eligible-files ()
+  "The census reports only eligible paths, and never enters excluded directories.
+Real files of every excluded class are created on disk; the capture must contain
+exactly the eligible ones."
+  (brain-test--with-environment
+    (let ((eligible '("keep.org" "sub/keep-two.org" "Straße.org" "test-notes.org"
+                      "build.org")))
+      (dolist (name eligible)
+        (brain-test--write (expand-file-name (concat "org-files/" name) brain-test--root)
+                           (concat "* " name "\n")))
+      ;; Every refused class, as real files.
+      (dolist (name '("a.sync-conflict-20260101-000000-AAAAAAA.org" ".#Locked.org"
+                      "#AutoSave.org#" "Note.org~" "Note.org.swp" "Note.txt"))
+        (brain-test--write (expand-file-name (concat "org-files/" name) brain-test--root)
+                           "x\n"))
+      ;; A whole excluded directory with a real .org inside it.
+      (make-directory (expand-file-name "org-files/.git/" brain-test--root) t)
+      (brain-test--write (expand-file-name "org-files/.git/generated.org"
+                                           brain-test--root)
+                         "* generated\n")
+      ;; A symlink to an eligible-looking target: never followed, never enrolled.
+      (let ((target (expand-file-name "org-files/keep.org" brain-test--root)))
+        (make-symbolic-link target (expand-file-name "org-files/Link.org"
+                                                     brain-test--root)))
+      (let* ((result (brain-test--drain-inventory (brain--uuid) 50))
+             (emitted (mapcar #'car (car result))))
+        (should (equal emitted (sort (mapcar (lambda (name) (concat "org-files/" name))
+                                             eligible)
+                                     #'string<)))
+        (should-not (member "org-files/Link.org" emitted))
+        (should-not (member "org-files/.git/generated.org" emitted))
+        (should (eq (alist-get "complete" (cdr result) nil nil #'equal) t))))))
+
+(ert-deftest brain-test-inventory-alias-ambiguity-is-incomplete ()
+  "Two spellings one volume collapses make the capture incomplete (§3).
+\"reject conflicting spellings, never pick one\": the capture must not silently
+emit both and let the gateway collapse them.
+
+The two spellings are injected through the capture's own path list rather than
+created on disk, because the Mac's default volume is case-INSENSITIVE: writing
+`Straße.org' and `STRASSE.org' would produce one file, and the test would pass for
+the wrong reason.  The alias predicate is what decides here, and it is the same
+predicate the walk calls per entry."
+  (brain-test--with-environment
+    (let ((inventory-id (brain--uuid)))
+      ;; Start the capture, then hand it the two colliding identities as if the
+      ;; walk had found them on a case-sensitive volume.
+      (let ((capture (brain--inventory-capture inventory-id)))
+        (setq capture (plist-put capture :paths
+                                 '("org-files/STRASSE.org" "org-files/Straße.org")))
+        (setq capture (brain--inventory-finish capture))
+        (setq capture (plist-put capture :status
+                                 (if (plist-get capture :reason) "incomplete" "complete")))
+        (puthash inventory-id capture brain--inventories))
+      (brain-test--inventory-request inventory-id nil 50)
+      (let ((page (brain-test--last-payload-of-kind "brain.inventory.page")))
+        (should (not (brain-test--flag page "complete")))
+        (should (equal (alist-get "reason" page nil nil #'equal) "alias_ambiguity"))
+        ;; No entries are published from a refused list.
+        (should (null (brain-test--inventory-entries page)))))))
+
+(ert-deftest brain-test-inventory-entries-carry-heads-not-bodies ()
+  "An entry carries `file_id' and the Mac's current `head_revision', nothing else.
+§2: \"Entries indicate disk membership, not enrollment success\", and \"No body
+publication during page enumeration\".  An unenrolled path has a null head and no
+object is published for it."
+  (brain-test--with-environment
+    (let* ((enrolled "org-files/Enrolled.org")
+           (unenrolled "org-files/Unenrolled.org"))
+      (brain-test--write (brain--file-path enrolled) "* enrolled\n")
+      (brain--enroll-baseline enrolled (brain--file-path enrolled)
+                              (brain--sha256-file (brain--file-path enrolled)))
+      (brain-test--write (brain--file-path unenrolled) "* unenrolled\n")
+      (let* ((result (brain-test--drain-inventory (brain--uuid) 50))
+             (entries (car result))
+             (by-id (lambda (id) (cdr (assoc id entries)))))
+        (should (equal (funcall by-id enrolled)
+                       (brain--rev->json (gethash enrolled brain--heads))))
+        (should (null (funcall by-id unenrolled)))
+        ;; No object was published for the unenrolled path by the census.
+        (should-not (file-exists-p
+                     (brain--object-path "mac"
+                                         (brain--sha256-file (brain--file-path unenrolled)))))
+        ;; And the payload carries exactly the two documented entry fields.
+        (let ((entry (car (alist-get "entries"
+                                     (brain-test--last-payload-of-kind
+                                      "brain.inventory.page")
+                                     nil nil #'equal))))
+          (should (equal (sort (mapcar #'car entry) #'string<)
+                         '("file_id" "head_revision"))))))))
+
+(ert-deftest brain-test-inventory-slices-are-bounded ()
+  "One traversal slice visits at most `brain-inventory-slice-entries' entries.
+§2: \"regular timer slices (at most 50 entries or 20 ms of traversal per slice)\".
+The bound is lowered so the test can observe the slice boundary without a large
+corpus; a slice that stopped early must not publish a partial list."
+  (brain-test--with-environment
+    (let ((brain-inventory-slice-entries 2))
+      (dotimes (index 6)
+        (let ((name (format "s-%d.org" index)))
+          (brain-test--write (expand-file-name (concat "org-files/" name)
+                                               brain-test--root)
+                             (concat "* " name "\n"))))
+      (let* ((inventory-id (brain--uuid))
+             (first (progn (brain-test--inventory-request inventory-id nil 50)
+                           (brain-test--last-payload-of-kind "brain.inventory.page"))))
+        ;; The first slice did not finish the walk: no entries and not complete.
+        (should (not (brain-test--flag first "complete")))
+        (should (equal (alist-get "reason" first nil nil #'equal) "inventory_walking"))
+        (should (null (brain-test--inventory-entries first)))
+        ;; Asking again resumes and eventually completes with every path.
+        (let* ((result (brain-test--drain-inventory inventory-id 50))
+               (emitted (mapcar #'car (car result))))
+          (should (= (length emitted) 6))
+          (should (eq (alist-get "complete" (cdr result) nil nil #'equal) t)))))))
+
+(ert-deftest brain-test-inventory-page-retry-is-the-same-response ()
+  "Retrying the same page of the same capture returns the same entries.
+§2: \"Same page retry has the same saved response, although current target content
+can advance separately.\"  The capture is a saved list, so this holds by
+construction -- and a file edited between the two requests proves the head in the
+answer is the capture's, not a fresh walk's."
+  (brain-test--with-environment
+    (dolist (name '("a.org" "b.org" "c.org"))
+      (brain-test--write (expand-file-name (concat "org-files/" name) brain-test--root)
+                         (concat "* " name "\n")))
+    (let* ((inventory-id (brain--uuid))
+           (first (progn (brain-test--inventory-request inventory-id nil 2)
+                         (brain-test--last-payload-of-kind "brain.inventory.page")))
+           (again (progn (brain-test--inventory-request inventory-id nil 2)
+                         (brain-test--last-payload-of-kind "brain.inventory.page"))))
+      (should (equal (brain-test--inventory-entries first)
+                     (brain-test--inventory-entries again)))
+      (should (equal (alist-get "next_after" first nil nil #'equal)
+                     (alist-get "next_after" again nil nil #'equal))))))
+
+;;; --- target baseline actual-use guards --------------------------------------
+
+(ert-deftest brain-test-snapshot-refuses-a-modified-buffer-without-a-lease ()
+  "A modified visiting buffer blocks enrollment even with no journaled lease.
+§2 requires checking \"ALL modified visiting/indirect buffers\"; the accepted code
+checked only the lease, so a buffer modified before Brain enabled could have its
+disk bytes enrolled while the human held unsaved text."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Unleased.org")
+           (path (brain--file-path file-id)))
+      (brain-test--write path "* disk\n")
+      (let ((buffer (brain-test--visit file-id)))
+        (with-current-buffer buffer
+          (goto-char (point-max))
+          (insert "* unsaved\n"))
+        ;; The guards are inhibited, so no lease was journaled by the edit itself.
+        (remhash file-id brain--dirty)
+        (should (buffer-modified-p buffer))
+        (should-not (gethash file-id brain--dirty))
+        (brain--handle-snapshot-request
+         (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+               (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+               (cons "file_id" file-id)))
+        (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
+          (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
+          (should (equal (alist-get "reason" payload nil nil #'equal) "modified_buffer")))
+        ;; Nothing was enrolled and no object was published.
+        (should-not (gethash file-id brain--heads))
+        (should-not (file-exists-p (brain--object-path "mac" (brain--sha256-file path))))
+        ;; The unsaved text is untouched.
+        (with-current-buffer buffer
+          (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                         "* disk\n* unsaved\n")))))))
+
+(ert-deftest brain-test-snapshot-refuses-an-indirect-buffer-alias-that-is-dirty ()
+  "An indirect buffer (an alias) that is modified also blocks enrollment.
+`brain--visiting-buffers' returns base and indirect buffers of one identity, so the
+guard sees the alias too -- which is the point of checking buffers rather than
+leases."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Alias.org")
+           (path (brain--file-path file-id)))
+      (brain-test--write path "* disk\n")
+      (let* ((base (brain-test--visit file-id))
+             (alias (make-indirect-buffer base "alias-of-Alias" t)))
+        (unwind-protect
+            (progn
+              (with-current-buffer alias
+                (goto-char (point-max))
+                (insert "* from alias\n"))
+              (remhash file-id brain--dirty)
+              (should (buffer-modified-p alias))
+              (brain--handle-snapshot-request
+               (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+                     (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+                     (cons "file_id" file-id)))
+              (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
+                (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
+                (should (equal (alist-get "reason" payload nil nil #'equal)
+                               "modified_buffer")))
+              (should-not (gethash file-id brain--heads)))
+          (when (buffer-live-p alias) (kill-buffer alias)))))))
+
+(ert-deftest brain-test-snapshot-refuses-an-autosave-marker ()
+  "An autosave/recovery marker blocks enrollment (§2).
+The marker is what survives a crash with unsaved text, so enrolling the disk bytes
+would silently discard the newer autosave."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Autosaved.org")
+           (path (brain--file-path file-id))
+           (autosave (brain--autosave-file file-id)))
+      (brain-test--write path "* disk\n")
+      (should (stringp autosave))
+      (brain-test--write autosave "* newer unsaved\n")
+      ;; Make the autosave strictly newer than the file, as a real crash would.
+      (set-file-times autosave (time-add (current-time) 60))
+      (brain--handle-snapshot-request
+       (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+             (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+             (cons "file_id" file-id)))
+      (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
+        (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
+        (should (equal (alist-get "reason" payload nil nil #'equal) "autosave_marker")))
+      (should-not (gethash file-id brain--heads)))))
+
+(ert-deftest brain-test-snapshot-refuses-non-utf8-bytes ()
+  "A file that is not valid UTF-8 is not enrolled (§2: \"Publish only saved exact
+UTF-8 bytes\").  The accepted code hashed the file without ever proving it decoded,
+so a binary or Latin-1 file would have been enrolled and then failed at the
+gateway."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Binary.org")
+           (path (brain--file-path file-id))
+           (raw (unibyte-string ?* ?\s #xff #xfe ?\n)))
+      ;; 0xFF is never valid UTF-8.
+      (brain-test--write-bytes path raw)
+      (brain--handle-snapshot-request
+       (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+             (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+             (cons "file_id" file-id)))
+      (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
+        (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
+        (should (equal (alist-get "reason" payload nil nil #'equal) "unsupported_coding")))
+      (should-not (gethash file-id brain--heads))
+      ;; The file itself was not modified.
+      (should (equal (brain-test--read-bytes path) raw)))))
+
+(ert-deftest brain-test-snapshot-refuses-a-symlinked-target ()
+  "A symlinked target is refused as an unsafe path, never enrolled (§3).
+\"No traversal, controls, backslashes, absolute or symlink paths.\""
+  (brain-test--with-environment
+    (let* ((outside (expand-file-name "outside.org" brain-test--root))
+           (link (expand-file-name "org-files/Linked.org" brain-test--root)))
+      (brain-test--write outside "* outside\n")
+      (make-symbolic-link outside link)
+      (brain--handle-snapshot-request
+       (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+             (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+             (cons "file_id" "org-files/Linked.org")))
+      (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
+        (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
+        (should (equal (alist-get "reason" payload nil nil #'equal) "symlink_component")))
+      (should-not (gethash "org-files/Linked.org" brain--heads)))))
+
+(ert-deftest brain-test-snapshot-enrols-a-clean-unheaded-file ()
+  "The ordinary case still works: a clean unheaded file gets seq0 and its object.
+This is the historical enrollment seam §2 keeps; the guards above must not have
+broken it."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Clean.org")
+           (path (brain--file-path file-id))
+           (text "* clean\n"))
+      (brain-test--write path text)
+      (brain--handle-snapshot-request
+       (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+             (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+             (cons "file_id" file-id)))
+      (let* ((payload (brain-test--last-payload-of-kind "brain.file.snapshot"))
+             (revision (gethash file-id brain--heads)))
+        (should (equal (alist-get "result" payload nil nil #'equal) "present"))
+        (should (= (plist-get revision :seq) 0))
+        (should (equal (plist-get revision :sha256) (brain--sha256-file path)))
+        ;; The exact bytes were published, and no buffer was opened.
+        (should (equal (brain-test--read-bytes (brain--object-path "mac"
+                                                                   (brain--sha256-file path)))
+                       (brain-test--bytes text)))
+        (should-not (get-file-buffer path))
+        ;; And the enrollment is journaled as a snapshot, not a commit.
+        (should (cl-find-if (lambda (record)
+                              (and (equal (plist-get record :kind) "snapshot")
+                                   (equal (plist-get record :file_id) file-id)))
+                            brain--journal))))))
+
+(ert-deftest brain-test-snapshot-enrols-a-non-ascii-name ()
+  "A non-ASCII eligible name enrolls under its exact NFC identity.
+§3: the identity is the path, and the alias key is NFC plus casefold; neither may
+mangle the stored `file_id'."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Straße.org")
+           (path (brain--file-path file-id)))
+      (brain-test--write path "* umlaut\n")
+      (brain--handle-snapshot-request
+       (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+             (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+             (cons "file_id" file-id)))
+      (should (gethash file-id brain--heads))
+      (should (equal (brain--alias-key file-id) "org-files/strasse.org")))))
+
+(ert-deftest brain-test-snapshot-of-a-head-mismatch-is-attention ()
+  "A known head that differs from disk is attention, never a silent re-baseline.
+§2: \"Head/disk mismatch remains attention; do not silently adopt it.\""
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Mismatch.org")
+           (path (brain--file-path file-id)))
+      (brain-test--write path "* base\n")
+      (brain--enroll-baseline file-id path (brain--sha256-file path))
+      (brain-test--write path "* changed outside\n")
+      (brain--handle-snapshot-request
+       (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+             (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+             (cons "file_id" file-id)))
+      (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
+        (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
+        (should (equal (alist-get "reason" payload nil nil #'equal) "disk_mismatch"))
+        ;; The old head is reported and kept; no new revision was allocated.
+        (should (= (plist-get (gethash file-id brain--heads) :seq) 0))
+        (should (equal (plist-get (gethash file-id brain--heads) :sha256)
+                       (brain--sha256 (brain-test--bytes "* base\n"))))))))
+
+;;; --- history ----------------------------------------------------------------
+
+(ert-deftest brain-test-history-emits-the-retained-chain-in-order ()
+  "History returns the original committed facts, ascending, with predecessors.
+§2: \"`brain.file.history` emits bounded committed facts with original
+operation_id, predecessor, revision and object_hash\".  Each fact is the chain
+step, so a consumer can install exactly one link at a time."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Chain.org")
+           (path (brain--file-path file-id))
+           (base (progn (brain-test--write path "* one\n")
+                        (brain--enroll-baseline file-id path
+                                                (brain--sha256-file path))))
+           (second (brain-commit-file
+                    (brain-test--install-spec file-id base "* one\n* two\n"
+                                              :attempt-id (brain--uuid))))
+           (_third (brain-commit-file
+                    (brain-test--install-spec file-id (plist-get second :new-revision)
+                                              "* one\n* two\n* three\n"
+                                              :attempt-id (brain--uuid)))))
+      (should (equal (plist-get second :status) "committed"))
+      (brain-test--history-request file-id -1 50)
+      (let* ((payload (brain-test--last-payload-of-kind "brain.file.history"))
+             (facts (alist-get "facts" payload nil nil #'equal))
+             (seqs (mapcar (lambda (fact)
+                             (plist-get (brain--rev<-json
+                                         (alist-get "revision" fact nil nil #'equal))
+                                        :seq))
+                           facts)))
+        (should (equal seqs '(0 1 2)))
+        (should (brain-test--flag payload "done"))
+        (should (brain-test--flag payload "complete"))
+        ;; The predecessor of each later fact is the previous revision.
+        (let ((second-fact (nth 1 facts)))
+          (should (equal (alist-get "predecessor_revision" second-fact nil nil #'equal)
+                         (brain--rev->json base))))
+        ;; Every fact names its original operation id and object hash.
+        (dolist (fact facts)
+          (should (stringp (alist-get "operation_id" fact nil nil #'equal)))
+          (should (equal (length (alist-get "object_hash" fact nil nil #'equal)) 64)))))))
+
+(ert-deftest brain-test-history-pages-are-contiguous-and-bounded ()
+  "History pages ascend without gaps or repeats, and the cursor is a seq.
+§2: the cursor is `next_after_seq', not `next_after'; a page that skipped a seq
+would be refused by the gateway's validator."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Paged.org")
+           (path (brain--file-path file-id))
+           (head (progn (brain-test--write path "* v0\n")
+                        (brain--enroll-baseline file-id path
+                                                (brain--sha256-file path)))))
+      (dotimes (index 4)
+        (let ((result (brain-commit-file
+                       (brain-test--install-spec
+                        file-id head (format "* v%d\n" (1+ index))
+                        :attempt-id (brain--uuid)))))
+          (setq head (plist-get result :new-revision))))
+      ;; Walk the chain two facts at a time.
+      (let ((after -1) (seqs nil) (guard 0) (done nil))
+        (while (and (< guard 20) (not done))
+          (brain-test--history-request file-id after 2)
+          (let* ((payload (brain-test--last-payload-of-kind "brain.file.history"))
+                 (facts (alist-get "facts" payload nil nil #'equal)))
+            (dolist (fact facts)
+              (push (plist-get (brain--rev<-json (alist-get "revision" fact nil nil #'equal))
+                               :seq)
+                    seqs))
+            (setq after (alist-get "next_after_seq" payload nil nil #'equal))
+            (setq done (brain-test--flag payload "done")))
+          (setq guard (1+ guard)))
+        (should (equal (nreverse seqs) '(0 1 2 3 4)))
+        (should done)))))
+
+(ert-deftest brain-test-history-of-an-unenrolled-file-is-empty-not-a-gap ()
+  "History of a path with no retained chain is an empty complete page.
+It allocates nothing and invents no seq0 -- the caller sees \"no history\", which
+is different from a failed read."
+  (brain-test--with-environment
+    (let ((file-id "org-files/Never.org"))
+      (brain-test--write (brain--file-path file-id) "* never enrolled\n")
+      (brain-test--history-request file-id -1 50)
+      (let ((payload (brain-test--last-payload-of-kind "brain.file.history")))
+        (should (null (alist-get "facts" payload nil nil #'equal)))
+        (should (null (alist-get "next_after_seq" payload nil nil #'equal)))
+        (should (brain-test--flag payload "done"))
+        (should (brain-test--flag payload "complete")))
+      (should-not (gethash file-id brain--heads)))))
+
+(ert-deftest brain-test-history-never-rewinds-or-skips-after-a-nonzero-head ()
+  "A file whose head is a nonzero seq reports the whole chain from -1.
+§2: \"never fabricates seq0 or skips to a latest nonzero head\".  A Hermes side with
+no baseline asks from -1 and must receive seq 0 first."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/NonZero.org")
+           (path (brain--file-path file-id))
+           (base (progn (brain-test--write path "* a\n")
+                        (brain--enroll-baseline file-id path
+                                                (brain--sha256-file path))))
+           (head base))
+      (dotimes (index 3)
+        (setq head (plist-get (brain-commit-file
+                               (brain-test--install-spec file-id head
+                                                         (format "* a%d\n" index)
+                                                         :attempt-id (brain--uuid)))
+                              :new-revision)))
+      (should (= (plist-get head :seq) 3))
+      (brain-test--history-request file-id -1 50)
+      (let* ((payload (brain-test--last-payload-of-kind "brain.file.history"))
+             (facts (alist-get "facts" payload nil nil #'equal)))
+        (should (equal (mapcar (lambda (fact)
+                                 (plist-get (brain--rev<-json
+                                             (alist-get "revision" fact nil nil #'equal))
+                                            :seq))
+                               facts)
+                       '(0 1 2 3)))
+        ;; The first fact has no predecessor: it is the real seq0, not a guess.
+        (should (null (alist-get "predecessor_revision" (car facts) nil nil #'equal)))))))
+
+;;; --- the query profile ------------------------------------------------------
+
+(ert-deftest brain-test-query-profile-matches-the-observed-configuration ()
+  "The profile reports the real TODO sequences, done markers and agenda files.
+The configuration below is the live Mac's (measured read-only from the running
+daemon); §4 requires the effective Org configuration as DATA, with the done
+markers explicit rather than positional."
+  (brain-test--with-environment
+    (require 'org)
+    (require 'org-agenda)
+    (let ((org-todo-keywords '((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d!)")
+                               (sequence "HABIT(h)" "DONE")
+                               (sequence "BUYING(b1)" "|" "bought(B!)")
+                               (sequence "BACKLOG(b)" "PLAN(p)" "READY(r)" "ACTIVE(a)"
+                                         "REVIEW(v)" "WAIT(w@/!)" "HOLD(h)" "|"
+                                         "COMPLETED(c)" "CANC(k@)")))
+          (org-agenda-files (list (expand-file-name "org-files/Tasks.org"
+                                                    brain-test--root)
+                                  (expand-file-name "org-files/todo.org"
+                                                    brain-test--root)
+                                  ;; A file outside the managed roots is not an
+                                  ;; agenda file_id and must not be invented into one.
+                                  "/etc/hosts"))
+          (org-agenda-start-on-weekday 1)
+          (org-deadline-warning-days 14))
+      (brain--emit-query-profile)
+      (let* ((payload (brain-test--last-payload-of-kind "brain.query.profile"))
+             (sequences (alist-get "todo_sequences" payload nil nil #'equal)))
+        (should (= (alist-get "version" payload nil nil #'equal) 1))
+        (should (equal (length (alist-get "profile_hash" payload nil nil #'equal)) 64))
+        (should (= (length sequences) 4))
+        ;; Sequence 1: the `|' split, with fast-key and logger suffixes stripped.
+        (should (equal (alist-get "keywords" (nth 0 sequences) nil nil #'equal)
+                       '("TODO" "NEXT" "DONE")))
+        (should (equal (alist-get "done" (nth 0 sequences) nil nil #'equal)
+                       '("DONE")))
+        ;; Sequence 2: NO `|', so Org's implicit rule makes the last keyword done.
+        (should (equal (alist-get "keywords" (nth 1 sequences) nil nil #'equal)
+                       '("HABIT" "DONE")))
+        (should (equal (alist-get "done" (nth 1 sequences) nil nil #'equal)
+                       '("DONE")))
+        ;; Sequence 3: a lowercase done keyword.
+        (should (equal (alist-get "done" (nth 2 sequences) nil nil #'equal)
+                       '("bought")))
+        ;; Sequence 4: two done keywords, and the ordered keyword list is preserved.
+        (should (equal (alist-get "done" (nth 3 sequences) nil nil #'equal)
+                       '("COMPLETED" "CANC")))
+        (should (equal (alist-get "keywords" (nth 3 sequences) nil nil #'equal)
+                       '("BACKLOG" "PLAN" "READY" "ACTIVE" "REVIEW" "WAIT" "HOLD"
+                         "COMPLETED" "CANC")))
+        ;; Agenda files: only the two managed ones, sorted.
+        (should (equal (alist-get "agenda_file_ids" payload nil nil #'equal)
+                       '("org-files/Tasks.org" "org-files/todo.org")))
+        (should (= (alist-get "week_start" payload nil nil #'equal) 1))
+        (should (= (alist-get "deadline_warning_days" payload nil nil #'equal) 14))))))
+
+(ert-deftest brain-test-query-profile-is-data-only-and-hash-stable ()
+  "The profile carries no Lisp, and its hash covers exactly its own facts.
+§4: \"No serialized Lisp/custom command bodies\", and the gateway caches the
+profile by hash, so the same configuration must hash the same and a changed one
+must not."
+  (brain-test--with-environment
+    (require 'org)
+    (require 'org-agenda)
+    (let* ((org-todo-keywords '((sequence "TODO" "|" "DONE")))
+           (org-agenda-files nil)
+           (org-agenda-start-on-weekday 1)
+           (org-deadline-warning-days 7))
+      (brain--emit-query-profile)
+      (let* ((first (brain-test--last-payload-of-kind "brain.query.profile"))
+             (hash (alist-get "profile_hash" first nil nil #'equal)))
+        ;; Every key is one of the documented data fields.
+        (should (equal (sort (mapcar #'car first) #'string<)
+                       '("agenda_file_ids" "deadline_warning_days" "profile_hash"
+                         "timezone" "todo_sequences" "version" "week_start")))
+        ;; The hash is the sha256 of the canonical JSON of everything else.  It is
+        ;; checked against the *wire* form of the same payload, because that is what
+        ;; the gateway receives and re-hashes: the decoded alist is what it holds.
+        (let ((body (seq-remove (lambda (cell) (equal (car cell) "profile_hash")) first)))
+          (should (equal hash (brain--sha256 (brain--json-encode body)))))
+        ;; Re-emitting the same configuration gives the same hash.
+        (brain--emit-query-profile)
+        (should (equal (alist-get "profile_hash"
+                                  (brain-test--last-payload-of-kind "brain.query.profile")
+                                  nil nil #'equal)
+                       hash))
+        ;; A changed configuration changes it.
+        (let ((org-deadline-warning-days 3))
+          (brain--emit-query-profile)
+          (should-not (equal (alist-get "profile_hash"
+                                        (brain-test--last-payload-of-kind
+                                         "brain.query.profile")
+                                        nil nil #'equal)
+                             hash)))))))
+
+(ert-deftest brain-test-query-profile-reports-an-unsupported-timezone ()
+  "A timezone the Mac cannot name is REPORTED as unsupported, never guessed.
+§4: \"Export only safe finite primitives; unsupported values are reported.\""
+  (brain-test--with-environment
+    (require 'org)
+    (require 'org-agenda)
+    (let ((org-todo-keywords '((sequence "TODO" "|" "DONE")))
+          (org-agenda-files nil))
+      (cl-letf (((symbol-function 'brain--timezone-name) (lambda () nil)))
+        (brain--emit-query-profile)
+        (let ((payload (brain-test--last-payload-of-kind "brain.query.profile")))
+          (should (null (alist-get "timezone" payload nil nil #'equal)))
+          (should (equal (alist-get "unsupported" payload nil nil #'equal)
+                         '("timezone"))))))))
+
+(ert-deftest brain-test-query-profile-is-emitted-after-readiness ()
+  "The profile is emitted after readiness (§4), on every (re)connect.
+The gateway durably caches the last profile, so a client that never publishes one
+leaves semantic task/agenda operations at `profile_unavailable'."
+  (brain-test--with-environment
+    (require 'org)
+    (require 'org-agenda)
+    (let ((org-todo-keywords '((sequence "TODO" "|" "DONE")))
+          (org-agenda-files nil)
+          (brain--client-epoch (brain--uuid))
+          (sent nil))
+      (cl-letf (((symbol-function 'brain--ipc-send)
+                 (lambda (object) (push object sent) t))
+                ((symbol-function 'brain--pump-outbox) (lambda () nil)))
+        (brain--announce-ready)
+        (should brain--reconciled)
+        ;; emacs.online then the profile, in that order.
+        (should (equal (mapcar (lambda (record) (plist-get record :event_kind))
+                               (seq-filter (lambda (record)
+                                             (equal (plist-get record :kind) "event"))
+                                           (last brain--journal 3)))
+                       '("emacs.online" "brain.query.profile")))))))
+
+(ert-deftest brain-test-subscribe-advertises-corpus-v1 ()
+  "`brain.subscribe' advertises corpus-v1 (§1, the client's half).
+The node relays this list upstream on `device.heartbeat'; an old client omits the
+field, which is what keeps the extension off for a mixed pair.  The frame is
+round-tripped through the real encoder, so the assertion sees the wire form."
+  (brain-test--with-environment
+    (let ((sent nil))
+      (cl-letf (((symbol-function 'brain--ipc-connect) (lambda () t))
+                ((symbol-function 'brain--ipc-send)
+                 (lambda (object) (push object sent) t)))
+        (brain--subscribe)
+        (let* ((frame (car sent))
+               (wire (brain--json-decode (brain--json-encode frame))))
+          (should (equal (alist-get "type" wire nil nil #'equal) "brain.subscribe"))
+          (should (equal (alist-get "corpus_features" wire nil nil #'equal)
+                         (list "corpus-v1")))
+          ;; The feature name is pinned to the gateway's vocabulary.
+          (should (equal brain--corpus-feature "corpus-v1")))))))
+
+;;; --- the legacy shapes are unchanged ---------------------------------------
+
+(ert-deftest brain-test-legacy-page-keeps-first-next-continuation ()
+  "The legacy page still reports the FIRST item of the next page as `continuation'.
+§1: \"No fix silently changes old page interpretation.\"  The accepted page
+semantics are exclusive-after requests with a first-next continuation, and the
+terminal event repeats the last emitted id -- not the new capture's `next_after'.
+With three files and limit 2 the first page is A,B, so its continuation is C."
+  (brain-test--with-environment
+    (dolist (name '("A.org" "B.org" "C.org"))
+      (brain-test--write (expand-file-name (concat "org-files/" name) brain-test--root)
+                         (concat "* " name "\n")))
+    (brain--handle-snapshot-request
+     (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+           (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+           (cons "limit" 2)))
+    (let ((payloads (brain-test--events-of-kind "brain.file.snapshot")))
+      (should (= (length payloads) 3))
+      ;; Two targets, each naming C.org as the next page's first item.
+      (should (equal (alist-get "continuation" (nth 0 payloads) nil nil #'equal)
+                     "org-files/C.org"))
+      (should (equal (alist-get "continuation" (nth 1 payloads) nil nil #'equal)
+                     "org-files/C.org"))
+      ;; Terminal: repeats the last emitted id, done=true, same continuation.
+      (should (equal (alist-get "file_id" (nth 2 payloads) nil nil #'equal)
+                     "org-files/B.org"))
+      (should (brain-test--flag (nth 2 payloads) "done")))))
+
+(ert-deftest brain-test-legacy-target-request-is-unchanged ()
+  "A legacy `{file_id}` request still answers `brain.file.snapshot', not a corpus event.
+The two shapes are disjoint because `mode' is a new field."
+  (brain-test--with-environment
+    (let ((file-id "org-files/Legacy.org"))
+      (brain-test--write (brain--file-path file-id) "* legacy\n")
+      (brain--handle-snapshot-request
+       (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+             (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+             (cons "file_id" file-id)))
+      (should (brain-test--last-payload-of-kind "brain.file.snapshot"))
+      (should (null (brain-test--events-of-kind "brain.inventory.page")))
+      (should (null (brain-test--events-of-kind "brain.file.history"))))))
+
+(ert-deftest brain-test-unknown-mode-is-refused-not-reinterpreted ()
+  "A `mode' this client does not implement is refused, never read as a legacy shape.
+§1 forbids silent reinterpretation in both directions."
+  (brain-test--with-environment
+    (let ((file-id "org-files/Mode.org"))
+      (brain-test--write (brain--file-path file-id) "* mode\n")
+      (brain--handle-snapshot-request
+       (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+             (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+             (cons "mode" "teleport") (cons "file_id" file-id)
+             (cons "limit" 10)))
+      (should-not (gethash file-id brain--heads))
+      (should (null (brain-test--events-of-kind "brain.file.snapshot")))
+      (should (null (brain-test--events-of-kind "brain.inventory.page"))))))
+
+;;; --- the frames the gateway must accept -------------------------------------
+
+(ert-deftest brain-test-e2-emits-the-corpus-frames-the-gateway-validates ()
+  "Emit every corpus frame the Mac can produce and dump it for cross-validation.
+The Mac's own suite cannot prove that the gateway's reviewed validators accept
+these payloads -- only the gateway's `contracts' can.  This test therefore writes
+each real payload, exactly as the Mac journals it, to the file named by
+`BRAIN_E2_FRAME_DUMP'; `tools/validate_mac_frames.py' then validates that file
+with the real E1 contracts.  Without the variable the test only asserts the shapes
+locally, so a plain ERT run stays self-contained."
+  (brain-test--with-environment
+    (require 'org)
+    (require 'org-agenda)
+    (let* ((dump (getenv "BRAIN_E2_FRAME_DUMP"))
+           (file-id "org-files/Frames.org")
+           (path (brain--file-path file-id))
+           (head nil)
+           (records nil))
+      (brain-test--write path "* one\n")
+      (setq head (brain--enroll-baseline file-id path (brain--sha256-file path)))
+      (dotimes (index 2)
+        (setq head (plist-get (brain-commit-file
+                               (brain-test--install-spec file-id head
+                                                         (format "* one\n* v%d\n" index)
+                                                         :attempt-id (brain--uuid)))
+                              :new-revision)))
+      ;; A second file so the inventory has more than one entry.
+      (brain-test--write (expand-file-name "org-files/Other.org" brain-test--root)
+                         "* other\n")
+      ;; 1. An inventory page with entries.
+      (brain-test--inventory-request (brain--uuid) nil 50)
+      ;; 2. An empty complete inventory (a fresh capture over an empty root).
+      (let ((saved brain-managed-roots))
+        (unwind-protect
+            (progn
+              (setq brain-managed-roots
+                    (list (cons "org-files" (expand-file-name "empty-root/"
+                                                              brain-test--root))
+                          (cons "org-roam" (expand-file-name "org-roam/"
+                                                             brain-test--root))))
+              (make-directory (expand-file-name "empty-root/" brain-test--root) t)
+              (brain-test--inventory-request (brain--uuid) nil 50))
+          (setq brain-managed-roots saved)))
+      ;; 3. A history page.
+      (brain-test--history-request file-id -1 50)
+      ;; 4. The query profile.
+      (let ((org-todo-keywords '((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d!)")
+                                 (sequence "BUYING(b1)" "|" "bought(B!)")))
+            (org-agenda-files nil))
+        (brain--emit-query-profile))
+      (setq records
+            (seq-filter (lambda (record)
+                          (and (equal (plist-get record :kind) "event")
+                               (member (plist-get record :event_kind)
+                                       '("brain.inventory.page" "brain.file.history"
+                                         "brain.query.profile"))))
+                        brain--journal))
+      ;; Every kind was produced at least once.
+      (dolist (kind '("brain.inventory.page" "brain.file.history" "brain.query.profile"))
+        (should (seq-find (lambda (record) (equal (plist-get record :event_kind) kind))
+                          records)))
+      ;; The empty inventory really is entries=[], done=true, next_after=null.
+      (let* ((pages (brain-test--events-of-kind "brain.inventory.page"))
+             (empty (seq-find (lambda (payload)
+                                (and (null (brain-test--inventory-entries payload))
+                                     (brain-test--flag payload "complete")))
+                              pages)))
+        (should empty)
+        (should (null (alist-get "next_after" empty nil nil #'equal)))
+        (should (brain-test--flag empty "done")))
+      (when dump
+        (with-temp-file dump
+          (setq coding-system-for-write 'utf-8-unix)
+          (dolist (record records)
+            (insert (brain--json-encode
+                     (list (cons "kind" (plist-get record :event_kind))
+                           (cons "payload"
+                                 (alist-get "payload" (plist-get record :payload)
+                                            nil nil #'equal))))
+                    "\n")))
+        (should (file-exists-p dump))))))
+
+(ert-deftest brain-test-corpus-capture-does-not-release-a-lease ()
+  "The census never touches leases, attention or heads (§2/§3).
+A capture is a read-only enumeration: it must not release a human lease, clear an
+attention row, or allocate a revision.  This is the accepted stale-clean-lease
+carry's boundary -- only `brain--release-stale-leases' releases, and only at
+enable, for a buffer that is genuinely clean."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Leased.org")
+           (path (brain--file-path file-id)))
+      (brain-test--write path "* disk\n")
+      (let ((buffer (brain-test--visit file-id)))
+        (with-current-buffer buffer
+          (goto-char (point-max))
+          (insert "* unsaved\n")))
+      (should (gethash file-id brain--dirty))
+      (puthash file-id "existing_attention" brain--attention)
+      (let ((before-heads (hash-table-count brain--heads)))
+        (brain-test--drain-inventory (brain--uuid) 50)
+        (should (gethash file-id brain--dirty))
+        (should (equal (gethash file-id brain--attention) "existing_attention"))
+        (should (= (hash-table-count brain--heads) before-heads))))))
