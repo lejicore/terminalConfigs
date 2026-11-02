@@ -2120,7 +2120,10 @@ interleaved."
     (dolist (id file-ids) (push id brain--locked))
     (unwind-protect
         (setq result (funcall body))
-      (dolist (id file-ids) (setq brain--locked (delete id brain--locked)))
+      ;; Non-destructive release: `delete' would mutate the list in place, and a
+      ;; caller holding a reference to it (a probe, a log, a test) would then see
+      ;; an exclusion that was never released that way.
+      (setq brain--locked (seq-remove (lambda (id) (member id file-ids)) brain--locked))
       (dolist (buffer buffers) (brain--unlock-buffer buffer)))
     result))
 

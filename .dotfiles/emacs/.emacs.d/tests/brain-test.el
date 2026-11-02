@@ -3939,6 +3939,76 @@ decides, and no head is invented for either path."
                                (equal (plist-get record :operation_id) operation-id)))
                         brain--journal)))))
 
+(ert-deftest brain-test-lifecycle-crash-with-unexpected-bytes-is-attention ()
+  "Unexpected bytes at the destination after a crash is ATTENTION (§3).
+\"old absent/new equals intended bytes => finish committed record\" -- so a
+destination that exists with DIFFERENT bytes is not that case, and reporting it
+as a finished relocation would adopt bytes nobody published."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/UnexpectedSource.org")
+           (destination "org-files/UnexpectedTarget.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (operation-id (brain--uuid))
+           (base (brain-test--enroll source "* intended bytes\n"))
+           (digest (brain--sha256-file source-path)))
+      (brain--journal-append "lifecycle_intent"
+                             :operation_id operation-id :action "relocate"
+                             :source_file_id source :source_revision base
+                             :source_hash digest
+                             :destination_file_id destination
+                             :destination_predecessor nil
+                             :destination_revision (brain--rev 0 digest)
+                             :destination_object_hash digest
+                             :lifecycle_generation 1
+                             :from_path source-path :to_path destination-path
+                             :reason "rename")
+      ;; The source is gone and something ELSE appeared at the destination.
+      (brain-test--delete source-path)
+      (brain-test--write destination-path "* somebody else's bytes\n")
+      (brain-test--restart)
+      (should (equal (gethash source brain--attention) "recovery_mismatch"))
+      (should-not (brain--retired-p source))
+      (should-not (gethash destination brain--heads))
+      ;; The foreign bytes were not touched.
+      (should (equal (brain-test--read-bytes destination-path)
+                     (brain-test--bytes "* somebody else's bytes\n"))))))
+
+(ert-deftest brain-test-lifecycle-holds-the-writer-exclusion-over-both-paths ()
+  "The lifecycle section holds the same per-path exclusion as an install (§3).
+\"They hold the same per-path/no-yield writer exclusion over both paths.\"  A
+commit of EITHER path attempted inside the section is refused as re-entrant
+rather than interleaved, and the exclusion is released afterwards."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/ExclSource.org")
+           (destination "org-files/ExclTarget.org")
+           (base (brain-test--enroll source "* excl\n"))
+           (inner nil)
+           (result nil))
+      (cl-letf (((symbol-function 'brain--rename-file-primitive)
+                 (lambda (from to &optional ok)
+                   ;; Inside the no-yield section: both paths are excluded.
+                   (setq inner (list (brain--lifecycle-refusal source destination t)
+                                     (and (member source brain--locked) t)
+                                     (and (member destination brain--locked) t)
+                                     (brain-commit-file
+                                      (brain-test--install-spec source base "* nested\n"))))
+                   (funcall (advice--cd*r (symbol-function 'rename-file)) from to ok))))
+        (setq result (brain-rename-file source destination)))
+      (should (equal (plist-get result :status) "committed"))
+      ;; The exclusion was visible from inside the section, for BOTH paths, and
+      ;; the nested commit of the source was refused rather than interleaved.
+      (should (nth 1 inner))
+      (should (nth 2 inner))
+      (should (equal (plist-get (nth 3 inner) :status) "dirty"))
+      (should (equal (plist-get (nth 3 inner) :reason) "reentrant"))
+      ;; ... and it is fully released afterwards.
+      (should-not (member source brain--locked))
+      (should-not (member destination brain--locked))
+      (should-not brain--in-critical))))
+
 (ert-deftest brain-test-lifecycle-crash-before-the-unlink-is-retried-under-guards ()
   "A delete intent whose file is unchanged is retried, not left dangling (§3).
 \"Delete intent with old absent => finish retirement; unchanged old present =>
@@ -4438,5 +4508,5 @@ shape the validator refuses cannot pass unnoticed."
                            (cons "payload"
                                  (alist-get "payload" (plist-get record :payload)
                                             nil nil #'equal))))
-                    "\n"))))
-        (should (file-exists-p dump)))))
+                    "\n")))
+        (should (file-exists-p dump))))))
