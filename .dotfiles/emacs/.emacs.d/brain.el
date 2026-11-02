@@ -2083,6 +2083,30 @@ reverted and no seq is guessed."
                                    :operation_id operation-id
                                    :reason "recovery_mismatch"))))))))
 
+(defun brain--release-stale-leases ()
+  "Release journal-replayed leases whose buffer is no longer unsaved.
+A dirty lease means \"the human has unsaved text\"; once every visiting buffer
+of the file is clean (its save was committed, or the daemon simply restarted
+with nothing modified), the lease is stale: keeping it would block every
+install on the file forever.  A genuinely unsaved buffer keeps its lease, and
+the buffer itself is the enforcement at install time, so releasing here can
+never install over unsaved text."
+  (maphash (lambda (file-id lease)
+             (unless (brain--any-buffer-dirty-p (brain--visiting-buffers file-id))
+               (remhash file-id brain--dirty)
+               (brain--journal-append "clean" :file_id file-id
+                                      :revision (gethash file-id brain--heads)
+                                      :dirty_generation (plist-get lease :generation)
+                                      :operation_id (plist-get lease :operation-id))
+               (brain--emit-event
+                "brain.file.clean"
+                (list (cons "file_id" file-id)
+                      (cons "revision" (brain--rev->json (gethash file-id brain--heads)))
+                      (cons "dirty_generation" (plist-get lease :generation))
+                      (cons "operation_id" (plist-get lease :operation-id))
+                      (cons "client_epoch" (or brain--client-epoch :null))))))
+           brain--dirty))
+
 (defun brain--mark-live-dirty-buffers ()
   "Mark every already visiting managed buffer with unsaved text as dirty."
   (dolist (buffer (buffer-list))
@@ -2231,6 +2255,7 @@ save and stop leasing the edit."
     (dolist (buffer (buffer-list))
       (with-current-buffer buffer (brain--setup-buffer)))
     (brain-recover)
+    (brain--release-stale-leases)
     (brain--mark-live-dirty-buffers)
     (brain--subscribe)
     (brain--announce-ready)

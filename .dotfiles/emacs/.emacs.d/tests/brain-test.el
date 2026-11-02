@@ -412,6 +412,89 @@ that into an error, so a test can never hang on it."
                      "brain.file.clean"))
       (should (equal (brain-test--read-bytes path) (brain-test--bytes text))))))
 
+(ert-deftest brain-test-restart-releases-a-lease-left-on-a-clean-buffer ()
+  "A journal-replayed lease whose buffer is clean again is released at enable:
+the clean save of that generation may have been journaled by a previous
+process, and keeping the lease would block every install on the file forever.
+The pending remote attempt is then delivered under its journaled id."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/StaleLease.org")
+           (path (brain--file-path file-id))
+           (original "* Base\n")
+           (base (brain-test--enroll file-id original))
+           (buffer (brain-test--visit file-id)))
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (insert "* Unsaved\n"))
+      (should (gethash file-id brain--dirty))
+      ;; The human saves, but the process "crashes" before the clean event can
+      ;; matter: simulate by committing the save and then restarting with the
+      ;; buffer clean on disk (the daemon restart visits the saved file).
+      (with-current-buffer buffer
+        (save-buffer)
+        (should-not (buffer-modified-p)))
+      (should-not (gethash file-id brain--dirty))
+      ;; Now simulate the live defect shape: a dirty lease journaled by a
+      ;; previous run, with the buffer already clean after a restart.  Journal
+      ;; the dirty record itself, so the restart replays it exactly like the
+      ;; live daemon's journal.
+      (brain--journal-append "dirty" :file_id file-id :base_revision base
+                             :dirty_generation 2
+                             :operation_id (brain--uuid)
+                             :client_epoch "old-epoch")
+      (puthash file-id (list :generation 2 :base base
+                             :operation-id (plist-get (car (last brain--journal))
+                                                       :operation_id)
+                             :epoch "old-epoch")
+               brain--dirty)
+      (brain-test--restart)
+      ;; The stale lease is gone and a clean record + brain.file.clean event
+      ;; were journaled for the gateway's files.human_lease_json.
+      (should-not (gethash file-id brain--dirty))
+      (let ((clean (cl-find-if (lambda (record)
+                                 (and (equal (plist-get record :kind) "clean")
+                                      (= (or (plist-get record :dirty_generation) 0) 2)))
+                               brain--journal)))
+        (should clean))
+      (should (equal (alist-get "kind" (plist-get (brain-test--last-event) :payload)
+                                nil nil #'equal)
+                     "brain.file.clean"))
+      ;; The pending remote install is no longer blocked by the stale lease.
+      (let ((result (brain-commit-file
+                     (brain-test--install-spec
+                      file-id (gethash file-id brain--heads)
+                      "* Base\n* Unsaved\n* Remote\n" :attempt-id "11111111-2222-4333-8444-555555555555"))))
+        (should (equal (plist-get result :status) "committed"))
+        (should (equal (brain-test--read-bytes path)
+                       (brain-test--bytes "* Base\n* Unsaved\n* Remote\n")))))))
+
+(ert-deftest brain-test-restart-keeps-a-lease-on-a-genuinely-dirty-buffer ()
+  "An unsaved buffer still owns its lease across a restart: the lease and the
+buffer together are what block installs byte-for-byte (criterion 3)."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/LiveDirty.org")
+           (path (brain--file-path file-id))
+           (original "* Base\n")
+           (base (brain-test--enroll file-id original))
+           (buffer (brain-test--visit file-id)))
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (insert "* Unsaved\n"))
+      (should (gethash file-id brain--dirty))
+      ;; A restart (brain-disable + brain-enable) keeps the lease because the
+      ;; buffer is still modified.
+      (brain-test--restart)
+      (should (gethash file-id brain--dirty))
+      (let ((result (brain-commit-file
+                     (brain-test--install-spec file-id base "* Base\n* Remote\n"))))
+        (should (equal (plist-get result :status) "dirty"))
+        (should (equal (plist-get result :reason) "dirty_lease")))
+      ;; Bytes unchanged on disk and in the buffer.
+      (should (equal (brain-test--read-bytes path) (brain-test--bytes original)))
+      (should (equal (with-current-buffer buffer
+                       (buffer-substring-no-properties (point-min) (point-max)))
+                     (concat original "* Unsaved\n"))))))
+
 (ert-deftest brain-test-human-save-keeps-markers-folding-and-tick ()
   (brain-test--with-environment
     (let* ((file-id "org-files/Marks.org")
