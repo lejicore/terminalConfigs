@@ -1247,6 +1247,21 @@ deferred with attention instead of being dropped."
          (t (cons 'semantic semantic))))
     (error (cons 'deferred (format "projection_failed:%s" (car err))))))
 
+(defconst brain--projection-deferral-reasons '("projection_empty" "projection_overflow")
+  "Attention-kind journal reasons that are deferrals, not attention rows.
+`brain--defer-projection' journals under the `attention' kind because a
+deferral must be durable and visible, but it is not a human decision: the
+in-memory table it fills is `brain--deferred'.  A rebuild must not turn one
+into an attention row, or a path whose projection merely overflowed could never
+be retired as missing, and `brain-status' would report attention for a derived
+manifest that is disposable by design.")
+
+(defun brain--projection-deferral-reason-p (reason)
+  "Non-nil when REASON names a deferred projection rather than an attention row."
+  (and (stringp reason)
+       (or (member reason brain--projection-deferral-reasons)
+           (string-prefix-p "projection_failed:" reason))))
+
 (defun brain--defer-projection (file-id reason operation-id revision)
   "Record that FILE-ID's semantic projection is deferred, visibly and durably.
 The committed bytes stay committed; only the derived manifest waits, so a hot
@@ -3963,6 +3978,42 @@ one."
                  brain--results))))
   brain--results)
 
+(defun brain--rebuild-attention ()
+  "Rebuild `brain--attention' from the journal's durable attention rows (§3).
+The missing-path retirement guard reads this table, and the two inventories
+that prove a path missing always happen AFTER the most recent restart -- so a
+table that only ever held this session's rows is blind exactly when the guard
+acts.  A durable attention row is a human decision, so it survives recovery
+until an explicit `attention_cleared' record (written by
+`brain-reconcile-file') says otherwise: recovery never auto-reconciles one.
+
+The three ways this module puts a row in the table are all replayed, so the
+rebuilt table is the one the writer would have had without the restart:
+`brain--attention' and `brain--recover-intents' journal an `attention' record,
+`brain--lifecycle-attention' journals `lifecycle_attention', and an install
+whose result is `attention' journals a `result' record that `brain-commit-file'
+mirrors into the table.
+
+Projection deferrals are journaled under the `attention' kind so they are
+durable, but they belong to `brain--deferred' and are not attention rows; a
+derived manifest that overflowed must not block a retirement or report
+attention."
+  (clrhash brain--attention)
+  (dolist (record brain--journal)
+    (let ((file-id (plist-get record :file_id))
+          (reason (plist-get record :reason)))
+      (when file-id
+        (pcase (plist-get record :kind)
+          ((or "attention" "lifecycle_attention")
+           (unless (brain--projection-deferral-reason-p reason)
+             (puthash file-id (or reason "attention") brain--attention)))
+          ("result"
+           (when (equal (plist-get record :status) "attention")
+             (puthash file-id (or reason "attention") brain--attention)))
+          ("attention_cleared" (remhash file-id brain--attention))
+          (_ nil)))))
+  brain--attention)
+
 (defun brain--recover-intents ()
   "Finish, keep pending or escalate every journaled intent.
 Intent + disk = new hash finishes the commit; intent + disk = predecessor keeps
@@ -4040,6 +4091,14 @@ never install over unsaved text."
   (brain--rebuild-heads)
   (brain--rebuild-dirty)
   (brain--rebuild-results)
+  ;; §3: a durable attention row must be visible to the writer guard before any
+  ;; lifecycle or census action can consult it.  The missing-path proof is two
+  ;; inventories that always happen after the most recent restart, so a table
+  ;; holding only this session's rows would let a path the recovery deliberately
+  ;; left for a human be retired automatically.  Rebuilt here, before
+  ;; `brain--recover-intents' and `brain--recover-lifecycle' can add rows of
+  ;; their own.
+  (brain--rebuild-attention)
   (setq brain--wire-seq
         (or (cl-loop for record in brain--journal
                      maximize (or (and (equal (plist-get record :kind) "event")

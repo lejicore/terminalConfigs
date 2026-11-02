@@ -4292,6 +4292,134 @@ human decision, so two clean inventories must not silently retire it."
       ;; The attention row is still exactly what it was.
       (should (equal (gethash file-id brain--attention) "disk_mismatch")))))
 
+(ert-deftest brain-test-lifecycle-attention-survives-a-restart-before-missing-retire ()
+  "A durable attention row still blocks a retirement AFTER a restart (§3).
+The two complete inventories that prove a path missing always happen after the
+most recent restart, so a table that only ever held this session's rows is blind
+exactly when the guard acts.  Here recovery itself leaves the path in attention
+(\"neither present => attention, no guessed success\"), the daemon restarts twice,
+and two complete inventories 61 s apart plus the target recheck must still not
+retire it: \"existing attention NOT auto-reconciled\"."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((source "org-files/RestartAttention.org")
+           (destination "org-files/RestartAttentionTarget.org")
+           (source-path (brain--file-path source))
+           (destination-path (brain--file-path destination))
+           (operation-id (brain--uuid))
+           (base (brain-test--enroll source "* lost bytes\n"))
+           (digest (brain--sha256-file source-path)))
+      (brain--journal-append "lifecycle_intent"
+                             :operation_id operation-id :action "relocate"
+                             :source_file_id source :source_revision base
+                             :source_hash digest
+                             :destination_file_id destination
+                             :destination_predecessor nil
+                             :destination_revision (brain--rev 0 digest)
+                             :destination_object_hash digest
+                             :lifecycle_generation 1
+                             :from_path source-path :to_path destination-path
+                             :reason "rename")
+      ;; Neither path survives: recovery must leave this for a human.
+      (brain-test--delete source-path)
+      (brain-test--restart)
+      (should (equal (gethash source brain--attention) "recovery_mismatch"))
+      ;; The restart that used to lose the row.
+      (brain-test--restart)
+      (should (equal (gethash source brain--attention) "recovery_mismatch"))
+      (should (seq-find (lambda (record)
+                          (and (equal (plist-get record :kind) "lifecycle_attention")
+                               (equal (plist-get record :operation_id) operation-id)))
+                        brain--journal))
+      ;; Two COMPLETE inventories at least 60 s apart that both lack the path.
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (let ((observations (gethash source brain--missing-observations)))
+        (puthash source (list (- (nth 0 observations) 61))
+                 brain--missing-observations))
+      (brain-test--drain-inventory (brain--uuid) 50)
+      ;; The proof is complete, and the guard still refuses: the attention row is
+      ;; a human decision, not a scan result.
+      (should-not (brain--missing-retire-eligible-p source))
+      (brain-test--snapshot-request source)
+      (should-not (brain--retired-p source))
+      (should (equal (gethash source brain--attention) "recovery_mismatch"))
+      ;; No retirement record was invented for it.
+      (should-not (seq-find (lambda (record)
+                              (and (equal (plist-get record :kind) "lifecycle")
+                                   (equal (plist-get record :source_file_id) source)))
+                            brain--journal)))))
+
+(ert-deftest brain-test-lifecycle-install-attention-survives-a-restart ()
+  "An attention row recorded by the commit primitive survives a restart too (§3).
+`brain-commit-file' mirrors an `attention' RESULT into the table and journals the
+result record; a restart must not lose it, or the same path could be retired as
+proven-missing by two inventories while the writer had flagged it for a human."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/InstallAttention.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* base\n")))
+      ;; The file changed outside the protocol: the install answers attention.
+      (brain-test--write path "* changed outside\n")
+      (should (equal (plist-get (brain-commit-file
+                                 (brain-test--install-spec file-id base "* remote\n"))
+                                :reason)
+                     "disk_mismatch"))
+      (should (equal (gethash file-id brain--attention) "disk_mismatch"))
+      (brain-test--restart)
+      (should (equal (gethash file-id brain--attention) "disk_mismatch"))
+      (brain-test--delete path)
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (let ((observations (gethash file-id brain--missing-observations)))
+        (puthash file-id (list (- (nth 0 observations) 61))
+                 brain--missing-observations))
+      (brain-test--drain-inventory (brain--uuid) 50)
+      (should-not (brain--missing-retire-eligible-p file-id))
+      (brain-test--snapshot-request file-id)
+      (should-not (brain--retired-p file-id)))))
+
+(ert-deftest brain-test-lifecycle-reconcile-clears-the-rebuilt-attention ()
+  "The explicit reconcile is the ONE thing that clears a rebuilt attention row (§3).
+The rebuild must not make attention permanently sticky by accident: the operator
+command journals `attention_cleared', and a later restart honours it."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/ClearAttention.org")
+           (path (brain--file-path file-id))
+           (base (brain-test--enroll file-id "* base\n")))
+      (brain-test--write path "* changed outside\n")
+      (brain-commit-file (brain-test--install-spec file-id base "* remote\n"))
+      (should (equal (gethash file-id brain--attention) "disk_mismatch"))
+      (brain-test--restart)
+      (should (equal (gethash file-id brain--attention) "disk_mismatch"))
+      (let ((disk (brain--sha256-file path)))
+        (should (equal (plist-get (brain-reconcile-file file-id base disk) :status)
+                       "committed")))
+      (should-not (gethash file-id brain--attention))
+      (should (seq-find (lambda (record)
+                          (and (equal (plist-get record :kind) "attention_cleared")
+                               (equal (plist-get record :file_id) file-id)))
+                        brain--journal))
+      (brain-test--restart)
+      (should-not (gethash file-id brain--attention)))))
+
+(ert-deftest brain-test-lifecycle-projection-deferral-is-not-an-attention-row ()
+  "A deferred projection is not rebuilt as an attention row (§3).
+`brain--defer-projection' journals under the `attention' kind so the deferral is
+durable, but it belongs to `brain--deferred': the bytes are committed and only the
+derived manifest waits.  Rebuilding it as attention would report attention for a
+disposable cache and permanently block a missing-path retirement."
+  (brain-test--with-environment
+    (brain-test--negotiate-corpus)
+    (let* ((file-id "org-files/DeferredProjection.org")
+           (base (brain-test--enroll file-id "* deferred\n")))
+      (brain--defer-projection file-id "projection_overflow" (brain--uuid) base)
+      (should (gethash file-id brain--deferred))
+      (should (member "attention" (brain-test--journal-kinds)))
+      (brain-test--restart)
+      (should-not (gethash file-id brain--attention))
+      (should-not (equal (plist-get (brain-status) :state) 'attention)))))
+
 (ert-deftest brain-test-lifecycle-reappearing-path-voids-its-observations ()
   "A path that reappears is not missing, so its observations are dropped (§3)."
   (brain-test--with-environment
