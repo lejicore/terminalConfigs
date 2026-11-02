@@ -365,6 +365,20 @@ above for why a table is needed at all.")
             (nth (random 4) '("8" "9" "a" "b")) (substring hex 17 20)
             (substring hex 20 32))))
 
+(defun brain--derived-uuid (name)
+  "Return a deterministic UUID derived from NAME.
+`brain--uuid' mints a FRESH id, which is right for a new operation and wrong for
+a fact that must keep one identity forever.  This one is a pure function of its
+input, so the same durable fact yields the same id on every request and after
+every restart."
+  (let ((hex (secure-hash 'sha256 (concat "brain/v1/" name))))
+    (format "%s-%s-5%s-%s%s-%s"
+            (substring hex 0 8) (substring hex 8 12) (substring hex 13 16)
+            (nth (logand (string-to-number (substring hex 16 17) 16) 3)
+                 '("8" "9" "a" "b"))
+            (substring hex 17 20)
+            (substring hex 20 32))))
+
 (defun brain--sha256 (object)
   "Return the sha256 hex digest of OBJECT (string or buffer)."
   (secure-hash 'sha256 object))
@@ -1389,15 +1403,18 @@ an independent second buffer visiting the same file is."
                (verify-visited-file-modtime buffer)))))))
 
 (defun brain--enroll-baseline (file-id path digest)
-  "Allocate revision 0 for an existing verified baseline and publish its object."
+  "Allocate revision 0 for an existing verified baseline and publish its object.
+The snapshot record carries its own `operation_id' so history can report the
+ORIGINAL fact identity of seq0 (§2) instead of minting a new one per request."
   (let* ((revision (brain--rev 0 digest))
+         (operation-id (brain--uuid))
          (bytes (with-temp-buffer
                   (set-buffer-multibyte nil)
                   (insert-file-contents-literally path)
                   (buffer-string))))
     (brain--publish-object bytes digest)
     (brain--journal-append "snapshot" :file_id file-id :revision revision
-                           :object_hash digest)
+                           :object_hash digest :operation_id operation-id)
     (puthash file-id revision brain--heads)
     (brain--fsync (brain--object-path "mac" digest) path)
     (brain--heads-save)
@@ -2268,8 +2285,8 @@ its own duration; only an abandoned capture ages out."
     (setq brain--inventory-order (nreverse keep))))
 
 (defun brain--inventory-capture (inventory-id)
-  "Return the live capture for INVENTORY-ID, starting one when it is unknown.
-The capture is created on the FIRST page request and stored Mac-locally (§2:
+  "Return the live capture for INVENTORY-ID, or nil when the Mac holds none.
+The capture is created by `brain--inventory-start' on a FIRST page request (§2:
 \"A captured list persists Mac-locally across page retries\").  A capture that is
 still walking is resumed by the next page request rather than restarted, so a
 large corpus is enumerated in bounded slices across several requests."
@@ -2280,16 +2297,23 @@ large corpus is enumerated in bounded slices across several requests."
       (setq brain--inventory-order (delete inventory-id brain--inventory-order))
       (list :status "expired" :inventory-id inventory-id))
      (capture capture)
-     (t
-      (let ((fresh (list :status "walking" :inventory-id inventory-id
-                         :created (float-time) :used (float-time)
-                         :paths nil :reason nil :bytes 0)))
-        (puthash inventory-id fresh brain--inventories)
-        (setq brain--inventory-order
-              (append brain--inventory-order (list inventory-id)))
-        (brain--inventory-expire-others)
-        (brain--inventory-walk-start)
-        fresh)))))
+     (t nil))))
+
+(defun brain--inventory-start (inventory-id)
+  "Create and return a fresh capture for INVENTORY-ID, replacing any stale one.
+Only a page request with NO cursor may start a capture (§2): a continuation is
+a slice of the list the caller was already given, and a fresh list under the
+same id would silently change what later pages mean."
+  (remhash inventory-id brain--inventories)
+  (setq brain--inventory-order (delete inventory-id brain--inventory-order))
+  (let ((fresh (list :status "walking" :inventory-id inventory-id
+                     :created (float-time) :used (float-time)
+                     :paths nil :reason nil :bytes 0)))
+    (puthash inventory-id fresh brain--inventories)
+    (setq brain--inventory-order (append brain--inventory-order (list inventory-id)))
+    (brain--inventory-expire-others)
+    (brain--inventory-walk-start)
+    fresh))
 
 (defun brain--inventory-finish (capture)
   "Finish CAPTURE: sort, dedupe, alias-check and bound its paths. Returns the
@@ -2437,10 +2461,26 @@ large corpus is enumerated in bounded slices across several requests."
 ;; re-reads the bytes, re-hashes them, re-checks the markers and then journals.
 ;; Nothing in it calls a process, sleeps or accepts input.
 
+(defun brain--snapshot-attention (request-id file-id reason &optional fields)
+  "Answer one `attention' target snapshot, keeping REASON off the wire.
+§1 keeps the legacy `brain.file.snapshot' shape unchanged, and the reviewed
+gateway contracts admit only `request_id', `file_id' and `result' plus the
+optional `revision', `object_hash', `dirty_generation', `continuation' and
+`done'.  A `reason' field is refused with `payload_field', and a refused event
+still spends its durable seq -- `channel.receive' journals it as a refusal -- so
+the gateway would permanently lose the attention fact for that target, on the
+old target request §1 says must continue unchanged.  The reason is therefore
+recorded Mac-locally and the frame stays inside the reviewed shape."
+  (brain--journal-append "snapshot_attention" :file_id file-id :reason reason
+                         :request_id request-id)
+  (brain--log "snapshot attention for %s: %s" file-id reason)
+  (brain--snapshot-event request-id file-id "attention" fields t))
+
 (defun brain--snapshot-target (request-id file-id)
   "Answer one target snapshot without opening or touching a visiting buffer.
 Every actual-use guard runs before a baseline is allocated; a refusal is an
-`attention' answer with its reason, never a silent enrollment."
+`attention' answer, never a silent enrollment.  The refusal reason is journaled
+locally (`brain--snapshot-attention') instead of being put on the frame."
   (let* ((resolution (brain--resolve file-id))
          (path (plist-get resolution :path))
          (head (gethash file-id brain--heads))
@@ -2449,40 +2489,34 @@ Every actual-use guard runs before a baseline is allocated; a refusal is an
          (dirty-buffer (brain--any-buffer-dirty-p buffers)))
     (cond
      ((equal (plist-get resolution :status) "unsafe")
-      (brain--snapshot-event request-id file-id "attention"
-                             (list (cons "continuation" :null)
-                                   (cons "reason" (or (plist-get resolution :reason)
-                                                      "unsafe_path")))
-                             t))
+      (brain--snapshot-attention
+       request-id file-id
+       (or (plist-get resolution :reason) "unsafe_path")
+       (list (cons "continuation" :null))))
      ((equal (plist-get resolution :status) "absent")
       (if lease
-          (brain--snapshot-event request-id file-id "attention"
-                                 (list (cons "dirty_generation"
-                                             (plist-get lease :generation))
-                                       (cons "reason" "dirty_lease"))
-                                 t)
+          (brain--snapshot-attention
+           request-id file-id "dirty_lease"
+           (list (cons "dirty_generation" (plist-get lease :generation))))
         (brain--snapshot-event request-id file-id "absent" nil t)))
      ;; A modified buffer of this identity owns the file, whether or not a lease
      ;; was journaled.  §2 forbids publishing text the human has not saved.
      ((or dirty-buffer (and lease (null head)))
-      (brain--snapshot-event request-id file-id "attention"
-                             (list (cons "dirty_generation"
-                                         (and lease (plist-get lease :generation)))
-                                   (cons "reason" (if dirty-buffer
-                                                      "modified_buffer"
-                                                    "dirty_lease")))
-                             t))
+      (brain--snapshot-attention
+       request-id file-id
+       (if dirty-buffer "modified_buffer" "dirty_lease")
+       (list (cons "dirty_generation"
+                   (and lease (plist-get lease :generation))))))
      (t
       (let ((digest (brain--sha256-file path)))
         (cond
          ((and head (not (equal digest (brain--rev-sha head))))
-          (brain--snapshot-event request-id file-id "attention"
-                                 (list (cons "revision" (brain--rev->json head))
-                                       (cons "object_hash" (brain--rev-sha head))
-                                       (cons "dirty_generation"
-                                             (and lease (plist-get lease :generation)))
-                                       (cons "reason" "disk_mismatch"))
-                                 t))
+          (brain--snapshot-attention
+           request-id file-id "disk_mismatch"
+           (list (cons "revision" (brain--rev->json head))
+                 (cons "object_hash" (brain--rev-sha head))
+                 (cons "dirty_generation"
+                       (and lease (plist-get lease :generation))))))
          (t
           (let ((outcome (if head (list :status "present" :revision head)
                            (brain--enroll-baseline-guarded file-id path digest))))
@@ -2493,9 +2527,8 @@ Every actual-use guard runs before a baseline is allocated; a refusal is an
                        (cons "object_hash" (brain--rev-sha (plist-get outcome :revision)))
                        (cons "dirty_generation" (and lease (plist-get lease :generation))))
                  t)
-              (brain--snapshot-event request-id file-id "attention"
-                                     (list (cons "reason" (plist-get outcome :reason)))
-                                     t))))))))))
+              (brain--snapshot-attention
+               request-id file-id (plist-get outcome :reason)))))))))))
 
 (defun brain--enroll-baseline-guarded (file-id path digest)
   "Enroll a verified baseline under the canonical writer's actual-use guards.
@@ -2560,12 +2593,16 @@ UTF-8 Org file from a binary or Latin-1 one."
   "Allocate revision 0 for BYTES, publish the object and journal the snapshot.
 The bytes are the exact ones the guard just verified; nothing is re-read here.
 Alias registration happens before the journal, so a colliding spelling refuses
-the enrollment instead of leaving a head for an identity the store will reject."
+the enrollment instead of leaving a head for an identity the store will reject.
+The record carries its own `operation_id': §2 requires history to report the
+ORIGINAL operation id of each fact, and a seq0 fact whose id is minted at read
+time would present the same chain step under a new identity on every retry."
   (brain--register-identity file-id)
-  (let ((revision (brain--rev 0 digest)))
+  (let ((revision (brain--rev 0 digest))
+        (operation-id (brain--uuid)))
     (brain--publish-object bytes digest)
     (brain--journal-append "snapshot" :file_id file-id :revision revision
-                           :object_hash digest)
+                           :object_hash digest :operation_id operation-id)
     (puthash file-id revision brain--heads)
     (brain--fsync (brain--object-path "mac" digest)
                   (brain--file-path file-id))
@@ -2576,44 +2613,63 @@ the enrollment instead of leaving a head for an identity the store will reject."
   "Answer one page of the captured list named by INVENTORY-ID.
 `after' is exclusive: the first page passes nil, later pages pass the last
 emitted `file_id'.  Nothing here reads or publishes a file body (§2: \"No body
-publication during page enumeration\")."
+publication during page enumeration\").
+
+A continuation for an `inventory_id' the Mac does not hold -- an id from before
+a restart, or one that expired -- is answered with `inventory_expired' and NO
+capture is started.  §2 forbids \"continuation against a changed list\": the
+caller's cursor is a position in the list it was given, so slicing a freshly
+walked list from it would silently skip or repeat paths.  The coordinator
+restarts with a new id, which is exactly what §2's restart rule assumes."
   (let ((capture (brain--inventory-capture inventory-id)))
     (cond
      ((equal (plist-get capture :status) "expired")
       ;; §2: an expired id requires a NEW inventory, never continuation against a
       ;; list that has changed underneath the caller.
       (brain--inventory-event request-id inventory-id nil nil t nil "inventory_expired"))
+     ((null capture)
+      (if after
+          (brain--inventory-event request-id inventory-id nil nil t nil
+                                  "inventory_expired")
+        (setq capture (brain--inventory-start inventory-id))
+        (brain--inventory-page-answer request-id inventory-id after limit capture)))
      (t
-      (setq capture (brain--inventory-advance capture))
-      (cond
-       ((not (brain--inventory-ready-p capture))
-        ;; The walk is still in progress.  This is not a page and not an end: the
-        ;; caller must ask again with the same cursor.  `complete=false` plus a
-        ;; reason is how §2 says "not a trustworthy enumeration yet".
-        (brain--inventory-event request-id inventory-id nil after nil nil
-                                "inventory_walking"))
-       (t
-        (let* ((paths (plist-get capture :paths))
-               (reason (plist-get capture :reason))
-               (remaining (seq-drop-while (lambda (path)
-                                            (and after (not (string< after path))))
-                                          paths))
-               (page (seq-take remaining (max 1 (min 50 limit))))
-               (more (seq-drop remaining (length page)))
-               (entries (mapcar (lambda (path)
-                                  (let ((head (gethash path brain--heads)))
-                                    (list (cons "file_id" path)
-                                          (cons "head_revision"
-                                                (if head (brain--rev->json head) :null)))))
-                                page))
-               (next (and page (car (last page))))
-               ;; An incomplete capture is never "done": `done' means the walk of a
-               ;; trustworthy list reached its end, and a refused list has no end to
-               ;; reach.  Reporting done=true with complete=false would invite a
-               ;; consumer to treat the (empty) page as the whole corpus.
-               (done (and (null more) (null reason))))
-          (brain--inventory-event request-id inventory-id entries next done
-                                  (null reason) reason))))))))
+      (brain--inventory-page-answer request-id inventory-id after limit capture)))))
+
+(defun brain--inventory-page-answer (request-id inventory-id after limit capture)
+  "Advance CAPTURE and emit one page of it.  See `brain--inventory-page'."
+  (setq capture (brain--inventory-advance capture))
+  (cond
+   ((not (brain--inventory-ready-p capture))
+    ;; The walk is still in progress.  This is not a page and not an end: the
+    ;; caller must ask again with the same cursor.  `complete=false` plus a
+    ;; reason is how §2 says \"not a trustworthy enumeration yet\", and the
+    ;; reviewed contracts refuse an empty page that echoes a cursor
+    ;; (\"an empty page has no next_after\"), so the cursor is not repeated here.
+    (brain--inventory-event request-id inventory-id nil nil nil nil
+                            "inventory_walking"))
+   (t
+    (let* ((paths (plist-get capture :paths))
+           (reason (plist-get capture :reason))
+           (remaining (seq-drop-while (lambda (path)
+                                        (and after (not (string< after path))))
+                                      paths))
+           (page (seq-take remaining (max 1 (min 50 limit))))
+           (more (seq-drop remaining (length page)))
+           (entries (mapcar (lambda (path)
+                              (let ((head (gethash path brain--heads)))
+                                (list (cons "file_id" path)
+                                      (cons "head_revision"
+                                            (if head (brain--rev->json head) :null)))))
+                            page))
+           (next (and page (car (last page))))
+           ;; An incomplete capture is never \"done\": `done' means the walk of a
+           ;; trustworthy list reached its end, and a refused list has no end to
+           ;; reach.  Reporting done=true with complete=false would invite a
+           ;; consumer to treat the (empty) page as the whole corpus.
+           (done (and (null more) (null reason))))
+      (brain--inventory-event request-id inventory-id entries next done
+                              (null reason) reason)))))
 
 (defun brain--inventory-event (request-id inventory-id entries next done complete reason)
   "Emit one `brain.inventory.page'.  `complete' is a boolean, `reason' text."
@@ -2629,6 +2685,20 @@ publication during page enumeration\")."
 
 ;; --- the history page answer ------------------------------------------------
 
+(defun brain--history-operation-id (file-id record revision)
+  "Return the ORIGINAL operation id of one chain fact.
+A record that journaled its own id reports exactly that id.  A legacy record
+written before the id was journaled -- including every seq0 snapshot already in
+the live journal -- gets a DETERMINISTIC derivation from durable Mac state
+(brain id, path identity and revision), so the same fact keeps one identity
+across repeated requests, re-pages and restarts.  Minting a fresh id here would
+present one chain step under a different identity on every retry and defeat the
+gateway's exactly-once chain installation (§2)."
+  (or (plist-get record :operation_id)
+      (brain--derived-uuid
+       (format "history/%s/%s/%s/%s"
+               brain-id file-id (brain--rev-seq revision) (brain--rev-sha revision)))))
+
 (defun brain--history-facts (file-id after-seq limit)
   "Return (FACTS . MORE): FILE-ID's retained chain after AFTER-SEQ. A fact is
   the ORIGINAL committed fact of one chain step: its operation id, its
@@ -2638,27 +2708,38 @@ publication during page enumeration\")."
   (§2: \"Hermes records each original fact and installs one chain step at a
   time; never fabricates seq0 or skips to a latest nonzero head\")."
   (let ((facts nil)
-        (more nil))
+        (more nil)
+        (seen (make-hash-table :test #'eql))
+        (chain nil))
+    ;; Ascend by seq explicitly rather than relying on journal order: one seq is
+    ;; one chain step, whatever order the records were written in.
     (dolist (record (append (brain--journal-records "snapshot")
                             (brain--journal-records "committed")))
       (let* ((record-file (plist-get record :file_id))
              (revision (or (plist-get record :revision)
-                           (plist-get record :new_revision)))
-             (predecessor (plist-get record :prev_revision)))
+                           (plist-get record :new_revision))))
         (when (and (equal record-file file-id) revision
                    (> (brain--rev-seq revision) after-seq))
-          (cond
-           ;; A fact beyond this page: the page is not the end of the chain.
-           ((>= (length facts) limit)
-            (setq more t))
-           (t
-            (push (list (cons "operation_id"
-                              (or (plist-get record :operation_id) (brain--uuid)))
-                        (cons "predecessor_revision"
-                              (if predecessor (brain--rev->json predecessor) :null))
-                        (cons "revision" (brain--rev->json revision))
-                        (cons "object_hash" (brain--rev-sha revision)))
-                  facts))))))
+          (let ((seq (brain--rev-seq revision)))
+            (unless (gethash seq seen)
+              (puthash seq t seen)
+              (push (list seq record revision) chain))))))
+    (dolist (step (sort chain (lambda (a b) (< (car a) (car b)))))
+      (let ((record (nth 1 step))
+            (revision (nth 2 step)))
+        (cond
+         ;; A fact beyond this page: the page is not the end of the chain.
+         ((>= (length facts) limit)
+          (setq more t))
+         (t
+          (push (list (cons "operation_id"
+                            (brain--history-operation-id file-id record revision))
+                      (cons "predecessor_revision"
+                            (let ((predecessor (plist-get record :prev_revision)))
+                              (if predecessor (brain--rev->json predecessor) :null)))
+                      (cons "revision" (brain--rev->json revision))
+                      (cons "object_hash" (brain--rev-sha revision)))
+                facts)))))
     (cons (nreverse facts) more)))
 
 (defun brain--history-page (request-id file-id after-seq limit)

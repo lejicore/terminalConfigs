@@ -2136,6 +2136,91 @@ and `:false' (its `:false-object'), so an assertion must not compare against
                   (alist-get "head_revision" entry nil nil #'equal)))
           (alist-get "entries" payload nil nil #'equal)))
 
+(defun brain-test--snapshot-attention-reason (file-id)
+  "The reason the Mac recorded for the LAST refused target snapshot of FILE-ID.
+The reason is deliberately NOT on the `brain.file.snapshot' frame (§1 keeps that
+legacy shape unchanged, and the reviewed gateway contracts refuse an extra
+field), so the Mac's own record is where a test can read it."
+  (let ((record (car (last (seq-filter
+                            (lambda (entry)
+                              (and (equal (plist-get entry :kind) "snapshot_attention")
+                                   (equal (plist-get entry :file_id) file-id)))
+                            brain--journal)))))
+    (plist-get record :reason)))
+
+(defun brain-test--snapshot-request (file-id)
+  "Drive one legacy `{file_id}' target snapshot request through the dispatcher."
+  (brain--handle-snapshot-request
+   (list (cons "v" 1) (cons "type" "brain.snapshot.request")
+         (cons "brain_id" brain-id) (cons "request_id" (brain--uuid))
+         (cons "file_id" file-id))))
+
+(defun brain-test--dump-snapshot-variants ()
+  "Produce every `brain.file.snapshot' answer E2 can emit, for cross-validation.
+Each variant is a REAL request driven through the dispatcher against real files
+and real buffers: `present', `absent', and the refusals (`dirty_lease',
+`modified_buffer', `autosave_marker', `unsupported_coding', `symlink_component',
+`disk_mismatch').  The cross-language validator then proves the reviewed
+contracts accept every one of them -- which is what catches a wire regression on
+the legacy shape that the Mac's own suite cannot see."
+  (let* ((present "org-files/Variants.org")
+         (absent "org-files/VariantsAbsent.org")
+         (dirty "org-files/VariantsDirty.org")
+         (modified "org-files/VariantsModified.org")
+         (autosaved "org-files/VariantsAutosaved.org")
+         (binary "org-files/VariantsBinary.org")
+         (mismatch "org-files/VariantsMismatch.org")
+         (linked "org-files/VariantsLinked.org")
+         (buffers nil))
+    ;; present: a clean unheaded file gets its seq0.
+    (brain-test--write (brain--file-path present) "* present\n")
+    (brain-test--snapshot-request present)
+    ;; absent: no file, no lease.
+    (brain-test--snapshot-request absent)
+    ;; dirty_lease: a journaled lease on a file that is gone.
+    (brain-test--write (brain--file-path dirty) "* dirty\n")
+    (let ((buffer (brain-test--visit dirty)))
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (insert "* unsaved\n"))
+      (push buffer buffers))
+    (brain-test--delete (brain--file-path dirty))
+    (brain-test--snapshot-request dirty)
+    ;; modified_buffer: a modified visiting buffer with NO lease.
+    (brain-test--write (brain--file-path modified) "* disk\n")
+    (let ((buffer (brain-test--visit modified)))
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (insert "* unsaved\n"))
+      (remhash modified brain--dirty)
+      (push buffer buffers))
+    (brain-test--snapshot-request modified)
+    ;; autosave_marker: an autosave newer than the file.
+    (brain-test--write (brain--file-path autosaved) "* disk\n")
+    (let ((autosave (brain--autosave-file autosaved)))
+      (when autosave
+        (brain-test--write autosave "* newer unsaved\n")
+        (set-file-times autosave (time-add (current-time) 60))))
+    (brain-test--snapshot-request autosaved)
+    ;; unsupported_coding: bytes that are not UTF-8.
+    (brain-test--write-bytes (brain--file-path binary)
+                             (unibyte-string ?* ?\s #xff #xfe ?\n))
+    (brain-test--snapshot-request binary)
+    ;; symlink_component: a symlinked target is never followed.
+    (brain-test--write (expand-file-name "org-files/VariantsReal.org" brain-test--root)
+                       "* real\n")
+    (make-symbolic-link (expand-file-name "org-files/VariantsReal.org" brain-test--root)
+                        (expand-file-name linked brain-test--root))
+    (brain-test--snapshot-request linked)
+    ;; disk_mismatch: a known head whose bytes changed outside the protocol.
+    (brain-test--write (brain--file-path mismatch) "* base\n")
+    (brain--enroll-baseline mismatch (brain--file-path mismatch)
+                            (brain--sha256-file (brain--file-path mismatch)))
+    (brain-test--write (brain--file-path mismatch) "* changed outside\n")
+    (brain-test--snapshot-request mismatch)
+    (dolist (buffer buffers)
+      (when (buffer-live-p buffer) (kill-buffer buffer)))))
+
 (defun brain-test--drain-inventory (inventory-id limit)
   "Walk every page of INVENTORY-ID and return (ENTRIES . FINAL-PAGE).
 Pages are requested with the cursor each one names, until a page reports `done'.
@@ -2376,6 +2461,73 @@ It must never be reported as `entries=[], done=true', which a caller would read 
               (should (null (car result)))))
         (setq brain-managed-roots saved)))))
 
+(ert-deftest brain-test-inventory-continuation-for-an-unknown-id-is-refused ()
+  "A cursor for an inventory_id the Mac does not hold never starts a capture.
+§2 forbids \"continuation against a changed list\".  After a restart (or an
+expiry) the Mac holds no list for that id, so a page carrying `after_file_id'
+must be answered `inventory_expired' -- not with a fresh walk sliced from a
+cursor that belongs to a different list, which would silently skip or repeat
+paths.  A FIRST page (null cursor) still starts a capture, which is how the
+coordinator recovers."
+  (brain-test--with-environment
+    (dolist (name '("a.org" "b.org" "c.org"))
+      (brain-test--write (expand-file-name (concat "org-files/" name) brain-test--root)
+                         (concat "* " name "\n")))
+    (let ((lost-id (brain--uuid)))
+      ;; The Mac holds no capture for this id: nothing was ever requested, which
+      ;; is exactly the state a restart leaves behind.
+      (should-not (gethash lost-id brain--inventories))
+      (brain-test--inventory-request lost-id "org-files/b.org" 50)
+      (let ((page (brain-test--last-payload-of-kind "brain.inventory.page")))
+        (should (equal (alist-get "reason" page nil nil #'equal) "inventory_expired"))
+        (should (not (brain-test--flag page "complete")))
+        (should (null (brain-test--inventory-entries page)))
+        (should (null (alist-get "next_after" page nil nil #'equal))))
+      ;; No capture was created as a side effect of the refused continuation.
+      (should-not (gethash lost-id brain--inventories))
+      ;; The same id with NO cursor starts a capture and answers a real page.
+      (brain-test--inventory-request lost-id nil 50)
+      (let ((page (brain-test--last-payload-of-kind "brain.inventory.page")))
+        (should (brain-test--flag page "complete"))
+        (should (equal (mapcar #'car (brain-test--inventory-entries page))
+                       '("org-files/a.org" "org-files/b.org" "org-files/c.org")))))))
+
+(ert-deftest brain-test-inventory-walking-answer-carries-no-cursor ()
+  "The in-progress answer is `entries=[], next_after=null, done=false'.
+The reviewed contracts refuse an empty page that echoes a cursor (\"an empty page
+has no next_after\"), and a refused event spends its durable seq, so a walking
+answer must not repeat the caller's cursor.  `done' stays false: the walk has not
+reached the end of a trustworthy list."
+  (brain-test--with-environment
+    (let ((brain-inventory-slice-entries 2))
+      (dotimes (index 6)
+        (let ((name (format "w-%d.org" index)))
+          (brain-test--write (expand-file-name (concat "org-files/" name)
+                                               brain-test--root)
+                             (concat "* " name "\n"))))
+      (let* ((inventory-id (brain--uuid))
+             (first (progn (brain-test--inventory-request inventory-id nil 50)
+                           (brain-test--last-payload-of-kind "brain.inventory.page")))
+             (after (alist-get "next_after" first nil nil #'equal)))
+        (should (equal (alist-get "reason" first nil nil #'equal) "inventory_walking"))
+        (should (null (brain-test--inventory-entries first)))
+        (should (null after))
+        (should-not (brain-test--flag first "done"))
+        (should-not (brain-test--flag first "complete"))
+        ;; A continuation while the walk is still running is answered the same
+        ;; way: never an empty page that names a cursor.
+        (brain-test--inventory-request inventory-id "org-files/w-0.org" 50)
+        (let ((walking (brain-test--last-payload-of-kind "brain.inventory.page")))
+          (should (equal (alist-get "reason" walking nil nil #'equal)
+                         "inventory_walking"))
+          (should (null (alist-get "next_after" walking nil nil #'equal)))
+          (should (null (brain-test--inventory-entries walking))))
+        ;; And the capture still finishes with every path.
+        (let* ((result (brain-test--drain-inventory inventory-id 50))
+               (emitted (mapcar #'car (car result))))
+          (should (= (length emitted) 6))
+          (should (brain-test--flag (cdr result) "complete")))))))
+
 (ert-deftest brain-test-inventory-unreadable-directory-is-incomplete ()
   "A directory that exists but cannot be read is complete=false, not empty.
 `directory-files' signals on it; the capture must turn that into an explicit
@@ -2464,7 +2616,7 @@ predicate the walk calls per entry."
     (let ((inventory-id (brain--uuid)))
       ;; Start the capture, then hand it the two colliding identities as if the
       ;; walk had found them on a case-sensitive volume.
-      (let ((capture (brain--inventory-capture inventory-id)))
+      (let ((capture (brain--inventory-start inventory-id)))
         (setq capture (plist-put capture :paths
                                  '("org-files/STRASSE.org" "org-files/Straße.org")))
         (setq capture (brain--inventory-finish capture))
@@ -2578,7 +2730,11 @@ disk bytes enrolled while the human held unsaved text."
                (cons "file_id" file-id)))
         (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
           (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
-          (should (equal (alist-get "reason" payload nil nil #'equal) "modified_buffer")))
+          ;; §1: the legacy frame keeps its reviewed shape, so the reason is a
+          ;; Mac-local record and never a wire field.
+          (should-not (alist-get "reason" payload nil nil #'equal))
+          (should (equal (brain-test--snapshot-attention-reason file-id)
+                         "modified_buffer")))
         ;; Nothing was enrolled and no object was published.
         (should-not (gethash file-id brain--heads))
         (should-not (file-exists-p (brain--object-path "mac" (brain--sha256-file path))))
@@ -2611,7 +2767,8 @@ leases."
                      (cons "file_id" file-id)))
               (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
                 (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
-                (should (equal (alist-get "reason" payload nil nil #'equal)
+                (should-not (alist-get "reason" payload nil nil #'equal))
+                (should (equal (brain-test--snapshot-attention-reason file-id)
                                "modified_buffer")))
               (should-not (gethash file-id brain--heads)))
           (when (buffer-live-p alias) (kill-buffer alias)))))))
@@ -2635,7 +2792,9 @@ would silently discard the newer autosave."
              (cons "file_id" file-id)))
       (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
         (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
-        (should (equal (alist-get "reason" payload nil nil #'equal) "autosave_marker")))
+        (should-not (alist-get "reason" payload nil nil #'equal))
+        (should (equal (brain-test--snapshot-attention-reason file-id)
+                       "autosave_marker")))
       (should-not (gethash file-id brain--heads)))))
 
 (ert-deftest brain-test-snapshot-refuses-non-utf8-bytes ()
@@ -2655,7 +2814,9 @@ gateway."
              (cons "file_id" file-id)))
       (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
         (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
-        (should (equal (alist-get "reason" payload nil nil #'equal) "unsupported_coding")))
+        (should-not (alist-get "reason" payload nil nil #'equal))
+        (should (equal (brain-test--snapshot-attention-reason file-id)
+                       "unsupported_coding")))
       (should-not (gethash file-id brain--heads))
       ;; The file itself was not modified.
       (should (equal (brain-test--read-bytes path) raw)))))
@@ -2674,7 +2835,9 @@ gateway."
              (cons "file_id" "org-files/Linked.org")))
       (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
         (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
-        (should (equal (alist-get "reason" payload nil nil #'equal) "symlink_component")))
+        (should-not (alist-get "reason" payload nil nil #'equal))
+        (should (equal (brain-test--snapshot-attention-reason "org-files/Linked.org")
+                       "symlink_component")))
       (should-not (gethash "org-files/Linked.org" brain--heads)))))
 
 (ert-deftest brain-test-snapshot-enrols-a-clean-unheaded-file ()
@@ -2736,7 +2899,8 @@ mangle the stored `file_id'."
              (cons "file_id" file-id)))
       (let ((payload (brain-test--last-payload-of-kind "brain.file.snapshot")))
         (should (equal (alist-get "result" payload nil nil #'equal) "attention"))
-        (should (equal (alist-get "reason" payload nil nil #'equal) "disk_mismatch"))
+        (should-not (alist-get "reason" payload nil nil #'equal))
+        (should (equal (brain-test--snapshot-attention-reason file-id) "disk_mismatch"))
         ;; The old head is reported and kept; no new revision was allocated.
         (should (= (plist-get (gethash file-id brain--heads) :seq) 0))
         (should (equal (plist-get (gethash file-id brain--heads) :sha256)
@@ -2859,6 +3023,76 @@ no baseline asks from -1 and must receive seq 0 first."
                        '(0 1 2 3)))
         ;; The first fact has no predecessor: it is the real seq0, not a guess.
         (should (null (alist-get "predecessor_revision" (car facts) nil nil #'equal)))))))
+
+(ert-deftest brain-test-history-operation-ids-are-stable-across-requests-and-reload ()
+  "The seq0 fact keeps ONE operation_id across requests and a journal reload.
+§2: history emits \"original operation_id\" facts.  A seq0 fact whose id is minted
+per request presents the same chain step under a new identity on every retry,
+which defeats the gateway's dedupe and its exactly-once chain installation."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Stable.org")
+           (path (brain--file-path file-id))
+           (base (progn (brain-test--write path "* one\n")
+                        (brain--enroll-baseline file-id path
+                                                (brain--sha256-file path))))
+           (_second (brain-commit-file
+                     (brain-test--install-spec file-id base "* one\n* two\n"
+                                               :attempt-id (brain--uuid)))))
+      (let ((ids-of (lambda ()
+                      (brain-test--history-request file-id -1 50)
+                      (mapcar (lambda (fact)
+                                (alist-get "operation_id" fact nil nil #'equal))
+                              (alist-get "facts"
+                                         (brain-test--last-payload-of-kind
+                                          "brain.file.history")
+                                         nil nil #'equal)))))
+        (let ((first (funcall ids-of))
+              (again (funcall ids-of)))
+          ;; Two identical requests agree, fact for fact.
+          (should (equal first again))
+          (should (= (length first) 2))
+          ;; Each chain step has its OWN identity, not one repeated id.
+          (should-not (equal (nth 0 first) (nth 1 first)))
+          ;; A cold start -- the journal is reloaded from disk, every in-memory
+          ;; id is gone -- must answer with the same ids.
+          (brain-test--reset-state)
+          (brain-recover)
+          (should (equal first (funcall ids-of))))))))
+
+(ert-deftest brain-test-history-derives-an-id-for-a-legacy-snapshot-record ()
+  "A snapshot record with no journaled operation_id still gets a stable id.
+The live journal already contains seq0 snapshots written before the id was
+recorded, so a derivation from durable Mac state is required rather than a
+migration.  It must be deterministic and distinct per fact."
+  (brain-test--with-environment
+    (let* ((file-id "org-files/Legacy.org")
+           (path (brain--file-path file-id))
+           (revision (brain--rev 0 (progn (brain-test--write path "* legacy\n")
+                                          (brain--sha256-file path)))))
+      ;; Exactly the record shape the accepted live module journaled.
+      (brain--journal-append "snapshot" :file_id file-id :revision revision
+                             :object_hash (brain--rev-sha revision))
+      (let ((ids-of (lambda ()
+                      (brain-test--history-request file-id -1 50)
+                      (mapcar (lambda (fact)
+                                (alist-get "operation_id" fact nil nil #'equal))
+                              (alist-get "facts"
+                                         (brain-test--last-payload-of-kind
+                                          "brain.file.history")
+                                         nil nil #'equal)))))
+        (let ((first (funcall ids-of)))
+          (should (= (length first) 1))
+          (should (equal first (funcall ids-of)))
+          ;; The derived id is a real UUID string, and it is a function of the
+          ;; fact -- a different revision derives a different id.
+          (should (string-match-p
+                   "\\`[0-9a-f]\\{8\\}-[0-9a-f]\\{4\\}-[0-9a-f]\\{4\\}-[0-9a-f]\\{4\\}-[0-9a-f]\\{12\\}\\'"
+                   (car first)))
+          (should-not (equal (brain--history-operation-id
+                              file-id (list :file_id file-id) revision)
+                             (brain--history-operation-id
+                              file-id (list :file_id file-id)
+                              (brain--rev 1 (brain--rev-sha revision))))))))))
 
 ;;; --- the query profile ------------------------------------------------------
 
@@ -3078,7 +3312,14 @@ these payloads -- only the gateway's `contracts' can.  This test therefore write
 each real payload, exactly as the Mac journals it, to the file named by
 `BRAIN_E2_FRAME_DUMP'; `tools/validate_mac_frames.py' then validates that file
 with the real E1 contracts.  Without the variable the test only asserts the shapes
-locally, so a plain ERT run stays self-contained."
+locally, so a plain ERT run stays self-contained.
+
+The `brain.file.snapshot' ATTENTION variants are dumped too, and deliberately:
+E2 changed every target refusal in this function, and a `reason' field on that
+legacy frame is refused by the reviewed contracts with `payload_field' -- a
+refused event still spends its durable seq, so the gateway would permanently lose
+the attention fact.  Validating the attention frames is what keeps that
+regression from coming back."
   (brain-test--with-environment
     (require 'org)
     (require 'org-agenda)
@@ -3114,17 +3355,27 @@ locally, so a plain ERT run stays self-contained."
           (setq brain-managed-roots saved)))
       ;; 3. A history page.
       (brain-test--history-request file-id -1 50)
-      ;; 4. The query profile.
+      ;; 4. The two inventory answers that are NOT a page of a finished list:
+      ;;    the in-progress answer, and the refused continuation for an id the
+      ;;    Mac does not hold.  Both must satisfy the reviewed contracts; the
+      ;;    walking answer must not echo a cursor (an empty page has no
+      ;;    next_after) and the refused one must state its reason.
+      (let ((brain-inventory-slice-entries 1))
+        (brain-test--inventory-request (brain--uuid) nil 50))
+      (brain-test--inventory-request (brain--uuid) "org-files/Frames.org" 50)
+      ;; 5. The query profile.
       (let ((org-todo-keywords '((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d!)")
                                  (sequence "BUYING(b1)" "|" "bought(B!)")))
             (org-agenda-files nil))
         (brain--emit-query-profile))
+      ;; 6. The legacy target-snapshot answers, every variant E2 can produce.
+      (brain-test--dump-snapshot-variants)
       (setq records
             (seq-filter (lambda (record)
                           (and (equal (plist-get record :kind) "event")
                                (member (plist-get record :event_kind)
                                        '("brain.inventory.page" "brain.file.history"
-                                         "brain.query.profile"))))
+                                         "brain.query.profile" "brain.file.snapshot"))))
                         brain--journal))
       ;; Every kind was produced at least once.
       (dolist (kind '("brain.inventory.page" "brain.file.history" "brain.query.profile"))
@@ -3139,6 +3390,22 @@ locally, so a plain ERT run stays self-contained."
         (should empty)
         (should (null (alist-get "next_after" empty nil nil #'equal)))
         (should (brain-test--flag empty "done")))
+      ;; Every snapshot answer, including the refusals, is inside the reviewed
+      ;; legacy field set: `reason' is a Mac-local record, never a wire field.
+      (let ((snapshots (brain-test--events-of-kind "brain.file.snapshot")))
+        (should (>= (length snapshots) 6))
+        (should (seq-find (lambda (payload)
+                            (equal (alist-get "result" payload nil nil #'equal)
+                                   "attention"))
+                          snapshots))
+        (dolist (payload snapshots)
+          (should-not (alist-get "reason" payload nil nil #'equal))
+          (should (seq-every-p
+                   (lambda (name)
+                     (member name '("request_id" "file_id" "result" "revision"
+                                    "object_hash" "dirty_generation"
+                                    "continuation" "done")))
+                   (mapcar #'car payload)))))
       (when dump
         (with-temp-file dump
           (setq coding-system-for-write 'utf-8-unix)
