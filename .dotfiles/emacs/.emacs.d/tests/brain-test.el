@@ -4680,3 +4680,583 @@ shape the validator refuses cannot pass unnoticed."
                                             nil nil #'equal))))
                     "\n")))
         (should (file-exists-p dump))))))
+
+;;; ---------------------------------------------------------------------------
+;;; E9c C1: journal durability and real stream replay
+;;; ---------------------------------------------------------------------------
+;;
+;; Design t_c4596fd0, "Mac durability and ordinary replay".  The live defect
+;; (investigator t_1bffb48a) was an append that failed after both counters had
+;; already been incremented: 656 contiguous records vanished from the file, from
+;; `brain--journal' and from `brain--outbox' while their small `ack' neighbours
+;; survived.  These tests pin the two halves of the repair:
+;;
+;; * a failed append burns NOTHING — the identity is unspent, so a retry writes
+;;   the record the peer is waiting for instead of leaving a permanent hole;
+;; * a failure that may have written bytes latches a fault and refuses further
+;;   writes, because reusing a possibly-written identity is worse than stopping;
+;; * the stream replay branch answers from the journal with the ORIGINAL
+;;   envelopes, and stops at the first missing position instead of skipping it.
+;;
+;; The real filesystem failure is exercised for real: `write-region' is not
+;; stubbed, and the ENOSPC case uses a real tmpfs filled by a real writer.
+
+(defun brain-test--journal-lines ()
+  "The journal file's records, in file order, as plists."
+  (let ((file (brain--journal-file)))
+    (when (file-regular-p file)
+      (with-temp-buffer
+        (let ((coding-system-for-read 'utf-8-unix))
+          (insert-file-contents file))
+        (goto-char (point-min))
+        (let (records)
+          (while (not (eobp))
+            (let ((line (buffer-substring-no-properties (line-beginning-position)
+                                                        (line-end-position))))
+              (unless (string-empty-p (string-trim line))
+                (push (brain--json->record (brain--json-decode line)) records)))
+            (forward-line 1))
+          (nreverse records))))))
+
+(defun brain-test--emit-n (count &optional kind)
+  "Emit COUNT real events of KIND (default `emacs.online') and return them."
+  (let (events)
+    (dotimes (index count)
+      (push (brain--emit-event (or kind "emacs.online")
+                               (list (cons "epoch" (1+ index)))
+                               t)
+            events))
+    (nreverse events)))
+
+(ert-deftest brain-test-journal-append-publishes-its-identity-only-after-the-write ()
+  "A failed append burns neither `brain--journal-seq' nor a file byte.
+This is the exact live mechanism: the reviewed writer incremented first, so a
+real ENOSPC produced 656 consecutive missing records with intact neighbours."
+  (brain-test--with-environment
+    (brain--journal-append "snapshot" :file_id "org-files/A.org")
+    (let ((before-seq brain--journal-seq)
+          (before-bytes (brain--journal-size))
+          (before-records (length brain--journal)))
+      ;; A real write failure, injected at the exact syscall boundary: the
+      ;; primitive is the real `write-region', it just cannot write.
+      (cl-letf (((symbol-function 'write-region)
+                 (lambda (&rest _) (signal 'file-error '("Write error" "No space left")))))
+        (should-error (brain--journal-append "event" :wire_seq 1)
+                      :type 'brain-journal-fault))
+      ;; Nothing was published: the identity is unspent and the file is intact.
+      (should (= brain--journal-seq before-seq))
+      (should (= (length brain--journal) before-records))
+      (should (= (brain--journal-size) before-bytes))
+      ;; The fault is NOT latched for a zero-byte failure: the caller may retry
+      ;; the same identity, and the retry writes the record the peer waits for.
+      (should-not brain--journal-fault)
+      (should (= (brain--journal-append "event" :wire_seq 1) (1+ before-seq)))
+      (should (= brain--journal-seq (1+ before-seq)))
+      (should (= (length (brain-test--journal-lines)) (1+ before-records))))))
+
+(ert-deftest brain-test-emit-event-does-not-burn-a-wire-seq-when-the-append-fails ()
+  "A failed emission costs no wire sequence and sends nothing.
+The live hole was 656 wire positions with no event anywhere.  With the identity
+published only after the append, the next emission reuses the sequence, so the
+peer never sees a gap it cannot replay."
+  (brain-test--with-environment
+    (brain--emit-event "emacs.online" (list (cons "epoch" 1)) t)
+    (should (= brain--wire-seq 1))
+    (let ((sent nil))
+      (cl-letf (((symbol-function 'brain--ipc-send)
+                 (lambda (object) (push object sent) t))
+                ((symbol-function 'write-region)
+                 (lambda (&rest _) (signal 'file-error '("Write error" "No space left")))))
+        (should-error (brain--emit-event "emacs.online" (list (cons "epoch" 2)))
+                      :type 'brain-journal-fault))
+      (should (= brain--wire-seq 1))
+      (should (= (length brain--outbox) 1))
+      (should-not sent))
+    ;; The retry takes the SAME wire sequence the failure did not burn.
+    (let ((event (brain--emit-event "emacs.online" (list (cons "epoch" 2)) t)))
+      (should (= (alist-get "seq" event nil nil #'equal) 2))
+      (should (= brain--wire-seq 2))
+      (should (= (length brain--outbox) 2))
+      (should (= (length (brain--journal-records "event")) 2))
+      ;; The journal holds exactly the two real events, contiguously.
+      (should (equal (mapcar (lambda (record) (plist-get record :wire_seq))
+                             (brain--journal-records "event"))
+                     '(1 2))))))
+
+(ert-deftest brain-test-partial-append-latches-a-fault-and-refuses-more-writes ()
+  "A failure that DID grow the file is ambiguous: latch, then refuse.
+A half-written line may be on disk, so the identity may already be owned.  The
+module must stop rather than renumber, shorten or reuse it — a reload that
+validates the file is the only way out."
+  (brain-test--with-environment
+    (brain--journal-append "snapshot" :file_id "org-files/A.org")
+    (let ((before-seq brain--journal-seq)
+          (real-write (symbol-function 'write-region)))
+      (cl-letf (((symbol-function 'write-region)
+                 (lambda (string &rest _)
+                   ;; The real failure shape: some bytes land, then the write
+                   ;; fails.  The file grows, so the append is ambiguous.
+                   ;; `append-to-file' is Lisp and calls `write-region', so the
+                   ;; captured original is used to avoid recursing into the stub.
+                   (with-temp-buffer
+                     (set-buffer-multibyte nil)
+                     (insert (substring (encode-coding-string string 'utf-8) 0 12))
+                     (funcall real-write (point-min) (point-max)
+                              (brain--journal-file) t 'no-message))
+                   (signal 'file-error '("Write error" "No space left")))))
+        (should-error (brain--journal-append "event" :wire_seq 1)
+                      :type 'brain-journal-fault))
+      (should brain--journal-fault)
+      (should (equal (plist-get brain--journal-fault :reason) "append_partial"))
+      (should (= brain--journal-seq before-seq))
+      ;; Every further write is refused: no renumbering, no silent repair.
+      (should-error (brain--journal-append "ack" :through_seq 1)
+                    :type 'brain-journal-fault)
+      (should (= brain--journal-seq before-seq))
+      ;; And the refusal is visible, not just logged.
+      (should (eq (plist-get (brain-status) :state) 'journal-fault))
+      (should (equal (brain-mode-line-string) " Brain:fault")))))
+
+(ert-deftest brain-test-fsync-failure-latches-a-fault ()
+  "A failed flush keeps the identity and stops the writer.
+The bytes may be durable and may not be; either way the identity is spent, so
+reusing it would be a second record under one number."
+  (brain-test--with-environment
+    (let ((brain-fsync-enabled t))
+      (cl-letf (((symbol-function 'brain--fsync) (lambda (&rest _) nil)))
+        (should-error (brain--journal-append "snapshot" :file_id "org-files/A.org")
+                      :type 'brain-journal-fault))
+      (should brain--journal-fault)
+      (should (equal (plist-get brain--journal-fault :reason) "fsync"))
+      ;; The record itself was written, so its identity is published.
+      (should (= brain--journal-seq 1))
+      (should-error (brain--journal-append "ack" :through_seq 1)
+                    :type 'brain-journal-fault))))
+
+(ert-deftest brain-test-reload-clears-the-fault-only-for-a-valid-journal ()
+  "A validated reload is the only way out of the latch; damage keeps it.
+The reviewer's rule is that a damaged journal is never shortened, renumbered or
+auto-repaired, so a reload of a damaged file must fail and stay latched."
+  (brain-test--with-environment
+    (brain--journal-append "snapshot" :file_id "org-files/A.org")
+    (setq brain--journal-fault (list :reason "append_partial" :detail nil :local-seq 2))
+    (brain--journal-load)
+    (should-not brain--journal-fault)
+    (should (= brain--journal-seq 1))
+    ;; A cut-off last line is refused, not repaired.
+    (let ((file (brain--journal-file)))
+      (with-temp-buffer
+        (set-buffer-multibyte nil)
+        (insert-file-contents-literally file)
+        (goto-char (point-max))
+        (delete-char -3)
+        (write-region (point-min) (point-max) file nil 'no-message)))
+    (should-error (brain--journal-load) :type 'brain-journal-corrupt)
+    ;; A duplicated identity is refused too: it is the signature of a second
+    ;; writer or a replayed append, and neither may be silently accepted.
+    (brain-test--write (brain--journal-file)
+                       (concat (brain--json-encode
+                                (brain--record->json
+                                 (list :local-seq 1 :kind "snapshot" :at 1)))
+                               "\n"
+                               (brain--json-encode
+                                (brain--record->json
+                                 (list :local-seq 1 :kind "snapshot" :at 2)))
+                               "\n"))
+    (should-error (brain--journal-load) :type 'brain-journal-corrupt)))
+
+(ert-deftest brain-test-dispatch-stops-and-keeps-the-queue-on-a-journal-fault ()
+  "A durability failure is not a per-frame accident.
+The reviewed `condition-case' logged it and went on to the next frame, which is
+how a failed page could be reported as delivered.  The queue is now preserved and
+the drain stops."
+  (brain-test--with-environment
+    (setq brain--recovered t)
+    (let ((handled nil))
+      (cl-letf (((symbol-function 'brain--dispatch-frame)
+                 (lambda (frame)
+                   (push (alist-get "type" frame nil nil #'equal) handled)
+                   (signal 'brain-journal-fault '("journal append failed")))))
+        (setq brain--inbox (list (list (cons "type" "brain.ack"))
+                                 (list (cons "type" "brain.ack"))))
+        (brain-dispatch-once))
+      ;; Exactly one frame was attempted, and both are still queued.
+      (should (equal handled '("brain.ack")))
+      (should (= (length brain--inbox) 2))
+      ;; A latched fault refuses the drain outright.
+      (setq brain--journal-fault (list :reason "fsync" :detail nil :local-seq 1))
+      (setq handled nil)
+      (brain-dispatch-once)
+      (should-not handled)
+      (should (= (length brain--inbox) 2)))))
+
+(ert-deftest brain-test-stream-replay-answers-with-original-envelopes ()
+  "A stream replay request is answered from the journal, not from the outbox.
+An acknowledged event is gone from `brain--outbox' but is still the honest answer:
+it is what the peer is missing.  The envelope is replayed unchanged — same seq,
+same event_id — because a fresh identity would be a second fact."
+  (brain-test--with-environment
+    (let* ((events (brain-test--emit-n 3))
+           (sent nil))
+      (cl-letf (((symbol-function 'brain--ipc-send)
+                 (lambda (object) (push object sent) t)))
+        ;; Acknowledge everything: the outbox is now empty, the journal is not.
+        (brain--handle-ack (list (cons "through_seq" 3)))
+        (should-not brain--outbox)
+        (brain--handle-replay-request
+         (list (cons "v" brain-protocol-version)
+               (cons "type" "brain.replay.request")
+               (cons "brain_id" brain-id)
+               (cons "peer_id" "mac")
+               (cons "after_seq" 0))))
+      (should (equal (nreverse (mapcar (lambda (frame)
+                                         (alist-get "seq" frame nil nil #'equal))
+                                       sent))
+                     '(1 2 3)))
+      ;; Byte-identical envelopes, not rebuilt ones.
+      (should (equal (nreverse sent) events))
+      ;; A bounded page, and the next request continues from where it stopped.
+      (setq sent nil)
+      (cl-letf (((symbol-function 'brain--ipc-send)
+                 (lambda (object) (push object sent) t)))
+        (brain--handle-replay-request
+         (list (cons "v" brain-protocol-version)
+               (cons "type" "brain.replay.request")
+               (cons "brain_id" brain-id)
+               (cons "peer_id" "mac")
+               (cons "after_seq" 1))))
+      (should (equal (mapcar (lambda (frame) (alist-get "seq" frame nil nil #'equal))
+                             (nreverse sent))
+                     '(2 3))))))
+
+(ert-deftest brain-test-stream-replay-stops-at-a-missing-position ()
+  "Replay never skips: a hole is reported, not bridged.
+This is the live shape — a range the writer no longer holds.  Answering with the
+later events would present a gap as applied history, which is exactly what the
+receiver's `gap' refusal exists to prevent."
+  (brain-test--with-environment
+    (brain-test--emit-n 4)
+    ;; Remove the middle of the retained stream, as the live writer did: the
+    ;; neighbours survive, the range does not.
+    (setq brain--journal
+          (seq-remove (lambda (record)
+                        (and (equal (plist-get record :kind) "event")
+                             (memq (plist-get record :wire_seq) '(2 3))))
+                      brain--journal))
+    (let ((sent nil))
+      (cl-letf (((symbol-function 'brain--ipc-send)
+                 (lambda (object) (push object sent) t)))
+        (brain--handle-replay-request
+         (list (cons "v" brain-protocol-version)
+               (cons "type" "brain.replay.request")
+               (cons "brain_id" brain-id)
+               (cons "peer_id" "mac")
+               (cons "after_seq" 0))))
+      ;; Only the contiguous prefix is sent: 1, then stop at the hole.
+      (should (equal (mapcar (lambda (frame) (alist-get "seq" frame nil nil #'equal))
+                             (nreverse sent))
+                     '(1))))))
+
+(ert-deftest brain-test-stream-replay-refuses-a-foreign-stream ()
+  "Only this Mac's own stream is replayable from this journal.
+A request for another peer, another brain id or an invalid cursor is refused
+without sending anything — an invented answer would be a fabricated fact."
+  (brain-test--with-environment
+    (brain-test--emit-n 2)
+    (dolist (frame (list (list (cons "v" brain-protocol-version)
+                               (cons "type" "brain.replay.request")
+                               (cons "brain_id" brain-id)
+                               (cons "peer_id" "hermes")
+                               (cons "after_seq" 0))
+                         (list (cons "v" brain-protocol-version)
+                               (cons "type" "brain.replay.request")
+                               (cons "brain_id" "99999999-9999-4999-8999-999999999999")
+                               (cons "peer_id" "mac")
+                               (cons "after_seq" 0))
+                         (list (cons "v" brain-protocol-version)
+                               (cons "type" "brain.replay.request")
+                               (cons "brain_id" brain-id)
+                               (cons "peer_id" "mac")
+                               (cons "after_seq" -1))))
+      (let ((sent nil))
+        (cl-letf (((symbol-function 'brain--ipc-send)
+                   (lambda (object) (push object sent) t)))
+          (brain--handle-replay-request frame))
+        (should-not sent)))))
+
+(ert-deftest brain-test-attempt-replay-is-unchanged ()
+  "The attempt branch still answers by attempt id, and still refuses an unknown one.
+C1 must not regress the existing replay contract while adding the stream branch."
+  (brain-test--with-environment
+    (let* ((attempt-id (brain--uuid))
+           (result (list :status "committed" :file-id "org-files/A.org"
+                         :attempt-id attempt-id :operation-id attempt-id))
+           (sent nil))
+      (puthash attempt-id result brain--results)
+      (cl-letf (((symbol-function 'brain--ipc-send)
+                 (lambda (object) (push object sent) t)))
+        (brain--handle-replay-request
+         (list (cons "v" brain-protocol-version)
+               (cons "type" "brain.replay.request")
+               (cons "brain_id" brain-id)
+               (cons "attempt_id" attempt-id)))
+        (should (= (length sent) 1))
+        (should (equal (alist-get "type" (car sent) nil nil #'equal)
+                       "brain.install.result"))
+        (should (equal (alist-get "attempt_id" (car sent) nil nil #'equal) attempt-id))
+        ;; An unknown attempt is still refused with nothing sent.
+        (setq sent nil)
+        (brain--handle-replay-request
+         (list (cons "v" brain-protocol-version)
+               (cons "type" "brain.replay.request")
+               (cons "brain_id" brain-id)
+               (cons "attempt_id" (brain--uuid))))
+        (should-not sent)))))
+
+(ert-deftest brain-test-real-enospc-append-burns-no-identity ()
+  "The live failure, reproduced for real: a full filesystem, the real writer.
+No stub is involved — `write-region' runs against a real tmpfs that really
+returns ENOSPC.  Both shapes the investigator measured are exercised, because
+they differ in exactly one observable and the code must handle both:
+
+* the journal's last allocation unit still has slack, so the append lands some
+  bytes and then fails — a partial record, which must latch the fault;
+* the journal is block-aligned, so the append needs a NEW unit, writes nothing
+  and fails — the live shape, which must leave the identity unspent.
+
+In both, the invariant that failed on 2026-11-03 holds: the local sequence does
+not advance for a record that is not in the file."
+  (skip-unless (and (eq system-type 'gnu/linux) (executable-find "unshare")))
+  (let* ((root (make-temp-file "brain-enospc-" t))
+         (mount (expand-file-name "full/" root))
+         (script (expand-file-name "repro.el" root))
+         ;; `load-file-name' is nil once the test runs, so the module directory
+         ;; comes from the library that was actually loaded.
+         (brain-el (or (locate-library "brain")
+                       (expand-file-name "brain.el" default-directory))))
+    (unwind-protect
+        (progn
+          (make-directory mount t)
+          (with-temp-file script
+            (insert
+             "(require 'brain)\n"
+             "(setq brain-id \"11111111-1111-4111-8111-111111111111\")\n"
+             "(setq brain-writer-id \"22222222-2222-4222-8222-222222222222\")\n"
+             "(setq brain-fsync-enabled nil)\n"
+             "(defun probe (label align)\n"
+             "  (let ((dir (expand-file-name (concat label \"/\") (getenv \"PROBE_ROOT\"))))\n"
+             "    (make-directory dir t)\n"
+             "    (setq brain-state-directory dir)\n"
+             "    (setq brain--journal nil brain--journal-seq 0 brain--journal-fault nil)\n"
+             "    (brain--journal-append \"snapshot\" :file_id \"org-files/A.org\")\n"
+             "    ;; Block-align the journal when asked: a record then needs a NEW\n"
+             "    ;; allocation unit, which is the live shape (zero bytes written).\n"
+             "    (when align\n"
+             "      (let* ((file (brain--journal-file))\n"
+             "             (size (brain--journal-size))\n"
+             "             (pad (- 4096 (% size 4096))))\n"
+             "        (when (> pad 0)\n"
+             "          (with-temp-buffer\n"
+             "            (insert (make-string (1- pad) ?\\s) \"\\n\")\n"
+             "            (append-to-file (point-min) (point-max) file)))))\n"
+             "    ;; Fill the filesystem for real until a write fails, exactly as the\n"
+             "    ;; retry storm did on the live Mac.\n"
+             "    (let ((filler (make-string 4096 ?x)) (n 0))\n"
+             "      (condition-case nil\n"
+             "          (while (< n 400)\n"
+             "            (with-temp-buffer (insert filler)\n"
+             "              (append-to-file (point-min) (point-max)\n"
+             "                              (expand-file-name \"filler.bin\" dir)))\n"
+             "            (setq n (1+ n)))\n"
+             "        (error nil)))\n"
+             "    (let ((before brain--journal-seq)\n"
+             "          (before-bytes (brain--journal-size))\n"
+             "          (failed nil)\n"
+             "          (payload (make-string 6000 ?y)))\n"
+             "      (condition-case nil\n"
+             "          (brain--journal-append \"event\" :wire_seq 1 :payload payload)\n"
+             "        (error (setq failed t)))\n"
+             "      (princ (format \"%s failed=%S seq=%S->%S delta=%S fault=%S\\n\"\n"
+             "                     label failed before brain--journal-seq\n"
+             "                     (- (brain--journal-size) before-bytes)\n"
+             "                     (if brain--journal-fault t nil))))))\n"
+             "(probe (getenv \"PROBE_MODE\") (equal (getenv \"PROBE_MODE\") \"aligned\"))\n"))
+          ;; The mount and the writer must share ONE mount namespace, so both
+          ;; run inside the same `unshare': a separate invocation would give the
+          ;; child its own empty namespace and the filesystem would never be full.
+          ;; Each shape gets a fresh tmpfs, because the first probe fills it.
+          (let* ((emacs (expand-file-name invocation-name invocation-directory))
+                 (run (lambda (mode)
+                        (with-temp-buffer
+                          (call-process
+                           "unshare" nil t nil
+                           "-Ur" "-m" "--propagation" "private"
+                           "sh" "-c"
+                           (format (concat "mount -t tmpfs -o size=64k tmpfs %s"
+                                           " && PROBE_ROOT=%s PROBE_MODE=%s"
+                                           " exec %s -Q --batch -L %s -l %s")
+                                   (shell-quote-argument mount)
+                                   (shell-quote-argument mount)
+                                   (shell-quote-argument mode)
+                                   (shell-quote-argument emacs)
+                                   (shell-quote-argument (file-name-directory brain-el))
+                                   (shell-quote-argument script)))
+                          (buffer-string))))
+                 (aligned (funcall run "aligned"))
+                 (slack (funcall run "slack")))
+            ;; The live shape: block-aligned, zero bytes written, no identity
+            ;; burned and no fault latched (the retry may reuse the sequence).
+            (should (string-match-p "aligned failed=t seq=1->1 delta=0 fault=nil" aligned))
+            ;; The other real shape: slack in the last unit, so bytes land and the
+            ;; append is ambiguous.  The identity is still unspent, and the fault
+            ;; is latched because the tail may be damaged.
+            (should (string-match-p "slack failed=t seq=1->1 delta=[1-9][0-9]* fault=t"
+                                    slack))))
+      (ignore-errors (delete-directory root t)))))
+
+;;; ---------------------------------------------------------------------------
+;;; E9c review round 1: UTF-8 journals, exporter boundaries, envelope identity
+;;; ---------------------------------------------------------------------------
+;;
+;; Three defects the first review found, each with the real behaviour it broke:
+;;
+;; * R1 — the shared journal reader inserted UTF-8 BYTES into a multibyte
+;;   buffer without decoding them, so a real event carrying `café' made both
+;;   the reload and the exporter signal `brain-journal-corrupt'.  A journal the
+;;   writer itself produced must always reload.
+;; * R2 — the evidence exporter promised an administrative-only destination and
+;;   enforced nothing, so it would happily write the private journal into a
+;;   synced managed root.
+;; * R4e — the strict reload accepted an event whose journal `wire_seq' did not
+;;   match its own envelope `seq', which is not a record this writer produced.
+
+(ert-deftest brain-test-journal-reload-preserves-non-ascii-events ()
+  "A real non-ASCII event survives the round trip through the file verbatim."
+  (brain-test--with-environment
+    (let* ((payload (list (cons "file_id" "org-files/café.org")
+                          (cons "name" "élève 😀")))
+           (event (brain--emit-event "review.unicode" payload t))
+           (bytes (brain-test--read-bytes (brain--journal-file))))
+      (should event)
+      ;; The file really holds UTF-8 bytes, not escaped ASCII.
+      (should (string-match-p "café" (decode-coding-string bytes 'utf-8)))
+      ;; And the reload yields the identical ENVELOPE: no character was mangled. The journal
+      ;; record wraps that envelope, so the comparison is against its :payload.
+      (brain--journal-load)
+      (should-not brain--journal-fault)
+      (let ((reloaded (plist-get (car (last brain--journal)) :payload)))
+        (should (equal event reloaded))
+        (should (equal payload (alist-get "payload" reloaded nil nil #'equal)))))))
+
+(ert-deftest brain-test-journal-reload-refuses-invalid-utf8 ()
+  "Decoding must not become leniency: an invalid byte sequence is still damage."
+  (brain-test--with-environment
+    (let ((brain--inhibit-guards t))
+      (with-temp-file (brain--journal-file)
+        (set-buffer-multibyte nil)
+        (setq coding-system-for-write 'no-conversion)
+        ;; 0xC3 0x28 is not a valid UTF-8 sequence.
+        (insert (unibyte-string ?{ ?\" ?a ?\" ?: ?\" 195 ?\( ?\" ?} ?\n))))
+    (should-error (brain--journal-load) :type 'brain-journal-corrupt)))
+
+(ert-deftest brain-test-exporter-writes-non-ascii-journal-byte-identically ()
+  "The exporter copies the journal's exact bytes, including multi-byte characters."
+  (brain-test--with-environment
+    (brain--emit-event "review.unicode" (list (cons "file_id" "org-files/café.org")) t)
+    (let* ((before (brain-test--read-bytes (brain--journal-file)))
+           (destination (expand-file-name "admin-evidence/" brain-test--root)))
+      (brain-export-stream-evidence destination)
+      (should (equal before (brain-test--read-bytes
+                             (expand-file-name "journal.jsonl" destination)))))))
+
+(ert-deftest brain-test-exporter-refuses-a-managed-root-destination ()
+  "The private journal is never written where a sync would carry it."
+  (brain-test--with-environment
+    (brain--emit-event "emacs.online" (list (cons "epoch" 1)) t)
+    (dolist (destination (list (expand-file-name "evidence/" org-files)
+                               (expand-file-name "evidence/" org-roam)
+                               (expand-file-name "evidence/" (brain--transport-dir))
+                               (expand-file-name "evidence/" (brain--state-dir))))
+      (should-error (brain-export-stream-evidence destination) :type 'brain-invalid-path)
+      ;; A refusal creates nothing: not the directory, not a partial capture.
+      (should-not (file-exists-p destination))
+      (should-not (file-exists-p (expand-file-name "journal.jsonl" destination))))))
+
+(ert-deftest brain-test-exporter-refuses-a-symlink-into-a-managed-root ()
+  "The boundary is on real names, not on how the path was spelled."
+  (brain-test--with-environment
+    (brain--emit-event "emacs.online" (list (cons "epoch" 1)) t)
+    (let ((link (expand-file-name "innocent" brain-test--root)))
+      (make-symbolic-link (directory-file-name org-files) link)
+      ;; The link resolves INTO the managed root, so the real-name check must refuse it even
+      ;; though the path the caller typed mentions no managed root at all.
+      (should (brain--export-destination-refusal (file-name-as-directory link)))
+      (should-error (brain-export-stream-evidence link) :type 'brain-invalid-path)
+      (should-not (file-exists-p (expand-file-name "journal.jsonl" link))))))
+
+(ert-deftest brain-test-exporter-accepts-an-administrative-destination ()
+  "The valid administrative destination still works, and writes both files."
+  (brain-test--with-environment
+    (brain--emit-event "emacs.online" (list (cons "epoch" 1)) t)
+    (let ((destination (expand-file-name "admin-evidence/" brain-test--root)))
+      (brain-export-stream-evidence destination)
+      (should (file-exists-p (expand-file-name "journal.jsonl" destination)))
+      (should (file-exists-p (expand-file-name "manifest.json" destination))))))
+
+(ert-deftest brain-test-journal-reload-refuses-a-mismatched-envelope-identity ()
+  "A record whose wire_seq is not its envelope seq cannot certify a writer identity."
+  (brain-test--with-environment
+    (brain--journal-append "event" :wire_seq 1 :event_kind "emacs.online"
+                           :payload (list (cons "event_id" "x") (cons "seq" 9)
+                                          (cons "kind" "emacs.online")))
+    (setq brain--journal-fault (list :reason "ambiguous"))
+    (should-error (brain--journal-load) :type 'brain-journal-corrupt)
+    ;; And the fault stays latched: a refused reload does not clear it.
+    (should brain--journal-fault)))
+
+;;; ---------------------------------------------------------------------------
+;;; E9c R3: the exporter names the module that actually produced it
+;;; ---------------------------------------------------------------------------
+;;
+;; Round-2 R3: the manifest hashed `locate-library' — which answers with `brain.elc' when a compiled
+;; copy sits beside the source — so a real capture could name a module identity nobody reviewed, and
+;; the verifier refused the exporter's own output. The reviewed set names `.el' source bytes, so the
+;; source is resolved explicitly and the manifest must carry THAT hash.
+
+(ert-deftest brain-test-exporter-names-the-loadable-source-module ()
+  "The manifest's source hash is the `.el' source, and it is a real readable file."
+  (brain-test--with-environment
+    (brain--emit-event "emacs.online" (list (cons "epoch" 1)) t)
+    (let* ((destination (expand-file-name "admin-evidence/" brain-test--root))
+           (manifest (brain-export-stream-evidence destination))
+           (named (alist-get "source_module_sha256" manifest nil nil #'equal))
+           (source (brain--module-source-file)))
+      (should (stringp named))
+      (should (= 64 (length named)))
+      (should source)
+      (should (file-regular-p source))
+      ;; The named hash is the hash of the file it claims, not of some other artifact.
+      (should (equal named (brain--sha256-file source)))
+      ;; And it is the SOURCE, never a compiled sibling.
+      (should-not (string-suffix-p ".elc" source)))))
+
+(ert-deftest brain-test-exporter-prefers-source-over-a-compiled-sibling ()
+  "A `.elc' beside the source must not become the module identity."
+  (brain-test--with-environment
+    (let* ((directory (make-temp-file "brain-module-" t))
+           (source (expand-file-name "brain.el" directory))
+           (compiled (expand-file-name "brain.elc" directory)))
+      (with-temp-file source (insert ";; source\n"))
+      (with-temp-file compiled (insert ";; compiled\n"))
+      ;; The resolver strips the suffix when a readable source exists beside it.
+      (cl-letf (((symbol-function 'symbol-file) (lambda (&rest _) compiled)))
+        (should (equal source (brain--module-source-file)))))))
+
+(ert-deftest brain-test-exporter-manifest-is-refused-for-a-missing-source ()
+  "An unreadable module is `null', never a hash of something else."
+  (brain-test--with-environment
+    (brain--emit-event "emacs.online" (list (cons "epoch" 1)) t)
+    (cl-letf (((symbol-function 'brain--module-source-file) (lambda () nil)))
+      (let* ((destination (expand-file-name "admin-evidence/" brain-test--root))
+             (manifest (brain-export-stream-evidence destination)))
+        (should (eq :null (alist-get "source_module_sha256" manifest nil nil #'equal)))))))

@@ -50,6 +50,7 @@ Nix Emacs daemon launched via bin/emacs lost macOS bundle identity.
 Launching Emacs.app/Contents/MacOS/Emacs preserves org.gnu.Emacs and fixes
 Corfu/AeroSpace focus drifting.
 * Things to test
+- Perspective persistence: in a disposable perspective, save and restart with local source/Org files, a useful non-file or indirect Org buffer, vterm, Agent Shell/Codex, and a TRAMP file. Local eligible buffers should return; runtime/remote buffers should not reconnect or restore. Agenda source files remain excluded by existing policy. Then open excluded resources manually and check normal perspective ownership. Use a disposable daemon/state file; this has not been verified in the daily daemon.
 - Should consider trying out the [[https://github.com/emacsmirror/gcmh][GCMH]] package instead of manually tweaking the garbage collector treshold 
 - [[https://codeberg.org/akib/emacs-eat][Eat]] terminal emulator 
 - [[https://github.com/linktohack/evil-commentary][evil-commentary]] to have easy and fast commenting motions in evil mode
@@ -521,6 +522,11 @@ Using persp-mode to create different workspaces
     :config
     ;; Workspace semantics, terminal backends, and editing-buffer navigation
     ;; are separate modules rooted in the source checkout, not in the runtime
+    ;; Brain v1 (B7 activation): this Mac's Brain identity, set before the
+    ;; module loads so `brain--maybe-enable' enables it at load time.
+    (setq brain-id "4a29e659-f95d-4806-bb72-b47b7bb7daa3"
+          brain-writer-id "ba74b754-ce21-4f57-859f-489b1512bdc3")
+
     ;; `user-emacs-directory'.
     (dolist (module '("ox-workspace" "ox-ghostel-ssh" "ox-terminal"
                          "ox-buffer-navigation" "ox-window-zoom"
@@ -535,25 +541,36 @@ Using persp-mode to create different workspaces
         (load (expand-file-name "ox-org-roam-copy-prompt" ox/emacs-source-directory)
               nil 'nomessage))
 
-    (defun ox/persp-ephemeral-buffer-p (buffer)
-        "Return non-nil when BUFFER should not be persisted by persp-mode."
-        (with-current-buffer buffer
-            (derived-mode-p 'agent-shell-mode)))
+    (defun ox/persp-buffer-persistable-p (buffer)
+      "Return non-nil when BUFFER is eligible for perspective serialization.
+Membership in a live perspective does not imply permission to serialize.
+Keep non-file buffers eligible, subject to persp-mode's other filters.
+Exclude runtime UIs, remote resources, and agenda sources (as before)."
+      (and (buffer-live-p buffer)
+           (with-current-buffer buffer
+             (let ((file (or buffer-file-name
+                             (and (buffer-base-buffer)
+                                  (buffer-file-name (buffer-base-buffer))))))
+               (and (not (derived-mode-p 'agent-shell-mode 'vterm-mode))
+                    ;; Also covers remote Dired and non-file remote buffers.
+                    ;; `file-remote-p' only inspects the name; it does not connect.
+                    (not (and file (file-remote-p file)))
+                    (not (file-remote-p default-directory))
+                    (not (and file
+                              (member (expand-file-name file)
+                                      (mapcar #'expand-file-name my-org-files)))))))))
 
-    (with-eval-after-load 'persp-mode
-        (add-to-list 'persp-filter-save-buffers-functions
-            #'ox/persp-ephemeral-buffer-p))
+    (defun ox/persp-buffer-save-filter (buffer)
+      "Adapt `ox/persp-buffer-persistable-p' to persp-mode's deny filter."
+      (not (ox/persp-buffer-persistable-p buffer)))
 
-    (defun ox/persp-org-agenda-buffer-p (buffer)
-        "Return non-nil when BUFFER visits one of my Org agenda source files."
-        (let ((file (buffer-file-name buffer)))
-            (and file
-                (member (expand-file-name file)
-                    (mapcar #'expand-file-name my-org-files)))))
-
-    (with-eval-after-load 'persp-mode
-        (add-to-list 'persp-filter-save-buffers-functions
-            #'ox/persp-org-agenda-buffer-p))
+    ;; Remove the former separate policies when re-evaluating this config.
+    (remove-hook 'persp-filter-save-buffers-functions
+                 #'ox/persp-ephemeral-buffer-p)
+    (remove-hook 'persp-filter-save-buffers-functions
+                 #'ox/persp-org-agenda-buffer-p)
+    (add-hook 'persp-filter-save-buffers-functions
+              #'ox/persp-buffer-save-filter)
 
     (defun consult-persp-buffer ()
         "Switch to a buffer within the current perspective using consult."
@@ -2761,11 +2778,14 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
 #+end_src
 * auth-source
 #+begin_src emacs-lisp
-;; The GitHub token is optional.  `auth-source-search' can fail for reasons that
-;; have nothing to do with this configuration (as observed: ~/.authinfo.gpg is
-;; encrypted to a key this keyring no longer holds).  An uncaught error here
-;; aborts the whole rest of init, which is what silently left org-roam - and
-;; every later section - unloaded.
+;; Daemons have no controlling terminal, and this Mac may have no external
+;; pinentry installed.  Ask for GPG passphrases in Emacs's minibuffer instead.
+;; Set both before auth-source first decrypts a credential file.
+(setq epg-pinentry-mode 'loopback
+      epa-pinentry-mode 'loopback)
+
+;; The GitHub token is optional.  An unavailable credential or failed GPG
+;; prompt must not abort the rest of init (including org-roam).
 (let* ((auth (ignore-errors
                (auth-source-search :host "api.github.com" :user "lejicore^forge")))
        (secret (plist-get (car auth) :secret))
@@ -2774,13 +2794,6 @@ Accept `persp-mode' activation hooks with either the legacy 1-arg or current
   ;; 'token' is nil when no readable credential exists; nothing here needs it.
   token)
 
-(setenv "GPG_TTY" (format "%d" (string-to-number (shell-command-to-string "tty --file=/dev/tty"))))
-;; (require 'epg)
-;; (require 'auth-source-pass)
-;; (auth-source-pass-enable)
-
-;; (setq epg-pinentry-mode 'loopback) ;;Getting prompted the gpg password in minibuffer instead of external
-;; (pinentry-start)
 #+end_src
 * Magit
 Forced to remove forge keybinding in [[file:early-init.el::(setq forge-add-default-bindings nil][early-init.el]] 
@@ -2973,7 +2986,7 @@ We then had to define the =N= keybinding again once [[(with-eval-after-load 'for
 	     ("Tasks.org" :maxlevel . 1)))
 
     ;; Save Org buffers after refiling!
-    (advice-add 'org-refile :after 'org-save-all-org-buffers)
+    (advice-add 'org-refile :after (lambda (&rest _) (org-save-all-org-buffers)))
 
     (setq org-tag-alist
 	'((:startgroup)
