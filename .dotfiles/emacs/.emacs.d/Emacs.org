@@ -376,7 +376,7 @@ We use the no-littering package to keep folders where we edit files and the Emac
   "Cross-platform frame transparency."
   :group 'frames)
 
-(defcustom my-opacity 30
+(defcustom my-opacity 40
   "Background opacity for graphical Emacs frames.
 100 means opaque, 0 means fully transparent."
   :type 'integer
@@ -2114,6 +2114,7 @@ Adding [[(define-key evil-motion-state-map (kbd "\\"][\]] as a secondary leader 
 		  vterm-mode
 		  term-mode
 		  reader-mode
+                  edraw-mode
 		  ))
     (add-to-list 'evil-emacs-state-modes mode)))
 ;;(evil-set-initial-state mode 'emacs)))
@@ -4445,7 +4446,8 @@ Emacs while it unwinds the startup minibuffer."
   :after org
   :straight '(edraw-org :host github :repo "misohena/el-easydraw" :branch "master")
   :config
-  (edraw-org-setup-default))
+  (edraw-org-setup-default)
+  :bind ("C-c g" . edraw-editor-set-grid-interval-and-major-period))
 #+end_src
 
 * ChatGpt
