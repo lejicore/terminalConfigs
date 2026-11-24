@@ -3215,6 +3215,18 @@ We then had to define the =N= keybinding again once [[(with-eval-after-load 'for
 :config
 (with-eval-after-load 'org (global-org-modern-mode)))
 #+end_src
+** org-modern-indent
+Modern block styling with org-indent.
+
+[[https://github.com/minad/org-modern][org-modern]] provides a clean and efficient org style. The blocks (e.g. source, example) are particularly nicely decorated. But when org-indent is enabled, the block "bracket", which uses the fringe area, is disabled.
+
+This small package approximately reproduces the block styling of org-modern when using org-indent. It can be used with or without org-modern. Recent versions support "bulk-indented" blocks nested within lists:
+#+begin_src emacs-lisp
+(use-package org-modern-indent
+    :straight (org-modern-indent :type git :host github :repo "jdtsmith/org-modern-indent")
+    :config ; add late to hook
+    (add-hook 'org-mode-hook #'org-modern-indent-mode 90))
+#+end_src
 ** Configure babel languages
 
 #+begin_src emacs-lisp
