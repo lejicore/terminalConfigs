@@ -41,7 +41,10 @@ rec {
   emacsLeji =
     if prev.stdenv.hostPlatform.isDarwin then
       emacsGitLejiGeneric.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [
+        patches =
+          (builtins.filter
+            (p: !(prev.lib.hasInfix "inhibit-lexical-cookie-warning" (toString p)))
+            (old.patches or [ ])) ++ [
           # Fix OS window role so that yabai can pick up Emacs
           # (prev.fetchpatch {
           #   url = "https://raw.githubusercontent.com/d12frosted/homebrew-emacs-plus/master/patches/emacs-28/fix-window-role.patch";
@@ -94,6 +97,11 @@ rec {
             sha256 = "4+2U+4+2tpuaThNJfZOjy1JPnneGcsoge9r+WpgNDko=";
           })
 
+          # Keep enum x_frame_parameter in sync with frame_parms after the
+          # round-undecorated-frame and frame-transparency patches
+          # (Emacs >= 32b83859). Retire once homebrew-emacs-plus#1028 and the
+          # bbenchen emacs-32 transparency patch carry these enum entries.
+          ./frame-parameter-enum-sync.patch
         ];
         withNS = true;
       })

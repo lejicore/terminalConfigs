@@ -1,0 +1,24 @@
+Keep enum x_frame_parameter in sync with frame_parms after the
+round-undecorated-frame and frame-transparency patches (Emacs >= 32b83859).
+Retire once homebrew-emacs-plus#1028 and the bbenchen emacs-32 transparency
+patch carry these enum entries themselves.
+
+--- a/src/frame.c
++++ b/src/frame.c
+@@ -4225,6 +4225,7 @@
+   TOOL_BAR_POSITION,
+   INHIBIT_DOUBLE_BUFFERING,
+   UNDECORATED,
++  UNDECORATED_ROUND,
+   PARENT_FRAME,
+   SKIP_TASKBAR,
+   NO_FOCUS_ON_MAP,
+@@ -4241,6 +4242,8 @@
+ #ifdef NS_IMPL_COCOA
+   NS_APPEARANCE,
+   NS_TRANSPARENT_TITLEBAR,
++  NS_BACKGROUND_BLUR,
++  NS_ALPHA_ELEMENTS,
+ #endif
+   DISPLAY,
+   LEFT,
