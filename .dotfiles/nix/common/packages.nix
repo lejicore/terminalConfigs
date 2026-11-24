@@ -92,7 +92,7 @@ in
   ddgr
   eza
   hyperfine
-  claude-code
+  #claude-code
   claude-agent-acp
   codex-acp-latest
   socat
@@ -105,4 +105,7 @@ in
   tailscale
   taskwarrior3
   cachix
+  cairo
+  pkg-config
+  pango
 ]
