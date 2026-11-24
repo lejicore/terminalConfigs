@@ -61,13 +61,13 @@ set searchurls.dev https://devdocs.io/#q=
 set searchurls.xin https://learnxinyminutes.com/
 
 " set searchurls.cg https://chat.openai.com/?model=gpt-4o&q=
-set searchurls.cg https://chatgpt.com/?model=gpt-5-auto&q=
+set searchurls.cg https://chatgpt.com/?q=
 set searchurls.tcg https://chatgpt.com/?model=auto&temporary-chat=true&hints=search&q=
 set searchurls.cgc https://chatgpt.com/?model=gpt-4o-canmore&q=
 set searchurls.co https://chatgpt.com/?model=o4-mini-high&q=
 
 " set searchurls.lc https://chat.mistral.ai/chat?model=codestral&q=
-set searchurls.lc https://chat.mistral.ai/chat?q=
+set searchurls.lc https://chat.mistral.ai/work?q=
 set searchurls.pe https://www.perplexity.ai/search?q=
 set searchurls.k https://www.kagi.com/search?q=
 
