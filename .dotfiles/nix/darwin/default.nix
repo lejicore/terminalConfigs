@@ -40,7 +40,6 @@ in
   #   # Keep stock KeepAlive / RunAtLoad.
   # };
 
-  nix-rage.nixPackage = pkgs.nixVersions.latest;
   nix = {
     linux-builder = {
       enable = true;
@@ -94,7 +93,7 @@ in
       # };
     };
 
-    package = config.nix-rage.package;
+    package = pkgs.nixVersions.latest;
     #package = pkgs.nixVersions.nix_2_31; # for nix-rage compatibility
     settings = {
       trusted-users = [
