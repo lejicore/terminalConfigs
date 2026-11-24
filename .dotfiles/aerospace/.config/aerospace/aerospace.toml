@@ -108,8 +108,10 @@ alt-shift-space = "layout floating tiling"
 
 # See: https://nikitabobko.github.io/AeroSpace/commands#focus
 alt-h = 'focus left'
-alt-j = 'focus down'
-alt-k = 'focus up'
+# alt-j = 'focus down'
+# alt-k = 'focus up'
+alt-j = 'focus --wrap-around down'
+alt-k = 'focus --wrap-around up'
 alt-l = 'focus right'
 
 # See: https://nikitabobko.github.io/AeroSpace/commands#move
