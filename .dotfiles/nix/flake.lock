@@ -306,16 +306,16 @@
         "treefmt-nix": "treefmt-nix_3"
       },
       "locked": {
-        "lastModified": 1789489259,
-        "narHash": "sha256-eL4+VJ/cnhsIFxDfaf4gv/AKiy0o44mxkKXR0gvDh3Q=",
+        "lastModified": 1789610777,
+        "narHash": "sha256-kBohsBMAE1RDoaEN8hBuAQcke/yXRPOBAIlUdAvQKdw=",
         "owner": "lejicore",
         "repo": "nix-rage",
-        "rev": "052a21227105a00fb98a45fb563ba7ad8b66bb3e",
+        "rev": "17ad00e4ed6c520e7dee7e454776402c23036bcf",
         "type": "github"
       },
       "original": {
         "owner": "lejicore",
-        "ref": "fix/scoped-plugin-loading",
+        "ref": "canonical-nix-package-facade",
         "repo": "nix-rage",
         "type": "github"
       }
@@ -432,11 +432,11 @@
     },
     "nixpkgs_5": {
       "locked": {
-        "lastModified": 1789370336,
-        "narHash": "sha256-6RSEDHIWQtesQKWSu5qRai8L2h4KgCgMEfJHstW99G4=",
+        "lastModified": 1790149054,
+        "narHash": "sha256-FfjXg6mAzKQBCY+7V9keGWOXG4DV2Eym/qA987lFl8A=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "c7def046b9a883d46974757852106483d741586f",
+        "rev": "8825bebf6324e0579d012936eff73379af284b6d",
         "type": "github"
       },
       "original": {
