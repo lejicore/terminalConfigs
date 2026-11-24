@@ -236,6 +236,7 @@ return {
 
       })
       vim.lsp.enable("nixd")
+      vim.lsp.enable("org")
 
 
       --[[ -- Update this path
